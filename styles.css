@@ -1,0 +1,316 @@
+/* Campus Assistant — Modal UI Styles */
+
+/* Reset for our container */
+#campusai-root * {
+    box-sizing: border-box;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+#campusai-root {
+    position: fixed;
+    z-index: 99999;
+    font-size: 14px;
+}
+
+/* Floating button */
+#campusai-fab {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: var(--campusai-color, #0066CC);
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    position: fixed;
+}
+
+#campusai-fab:hover {
+    transform: scale(1.08);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+#campusai-fab svg {
+    width: 28px;
+    height: 28px;
+    fill: currentColor;
+}
+
+#campusai-fab.bottom-right { bottom: 24px; right: 24px; }
+#campusai-fab.bottom-left  { bottom: 24px; left: 24px; }
+
+/* Notification badge on FAB */
+#campusai-fab .badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    background: #e74c3c;
+    color: #fff;
+    border-radius: 10px;
+    padding: 2px 6px;
+    font-size: 11px;
+    font-weight: 700;
+    display: none;
+}
+
+/* Modal container */
+#campusai-modal {
+    position: fixed;
+    bottom: 90px;
+    width: 380px;
+    max-width: calc(100vw - 32px);
+    height: 520px;
+    max-height: calc(100vh - 120px);
+    background: #ffffff;
+    border-radius: 16px;
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.18);
+    display: none;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+#campusai-modal.bottom-right { right: 24px; }
+#campusai-modal.bottom-left  { left: 24px; }
+
+#campusai-modal.open {
+    display: flex;
+    animation: campusai-slide-up 0.25s ease;
+}
+
+@keyframes campusai-slide-up {
+    from { opacity: 0; transform: translateY(20px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Modal header */
+#campusai-header {
+    background: var(--campusai-color, #0066CC);
+    color: #fff;
+    padding: 14px 18px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+}
+
+#campusai-header .title {
+    font-weight: 600;
+    font-size: 15px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+#campusai-close {
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: #fff;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    line-height: 1;
+}
+
+#campusai-close:hover {
+    background: rgba(255, 255, 255, 0.35);
+}
+
+/* Messages area */
+#campusai-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background: #f8f9fa;
+    scroll-behavior: smooth;
+}
+
+#campusai-messages::-webkit-scrollbar {
+    width: 6px;
+}
+
+#campusai-messages::-webkit-scrollbar-thumb {
+    background: #ccc;
+    border-radius: 3px;
+}
+
+/* Message bubbles */
+.msg-bubble {
+    max-width: 80%;
+    padding: 10px 14px;
+    border-radius: 14px;
+    line-height: 1.5;
+    word-wrap: break-word;
+}
+
+.msg-bubble.assistant {
+    background: #fff;
+    color: #333;
+    border: 1px solid #e0e0e0;
+    align-self: flex-start;
+    border-bottom-left-radius: 4px;
+}
+
+.msg-bubble.user {
+    background: var(--campusai-color, #0066CC);
+    color: #fff;
+    align-self: flex-end;
+    border-bottom-right-radius: 4px;
+}
+
+/* Quick prompts */
+.quick-prompts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 16px 4px;
+    background: #f8f9fa;
+}
+
+.quick-prompt {
+    background: #e8eef5;
+    color: var(--campusai-color, #0066CC);
+    border: 1px solid transparent;
+    border-radius: 12px;
+    padding: 6px 12px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.15s;
+    white-space: nowrap;
+}
+
+.quick-prompt:hover {
+    background: #d0deef;
+}
+
+/* Typing indicator */
+.typing-indicator {
+    display: flex;
+    gap: 4px;
+    padding: 10px 14px;
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 14px;
+    align-self: flex-start;
+    border-bottom-left-radius: 4px;
+}
+
+.typing-indicator span {
+    width: 8px;
+    height: 8px;
+    background: #aaa;
+    border-radius: 50%;
+    animation: typing-pulse 1.4s infinite;
+}
+
+.typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+.typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes typing-pulse {
+    0%, 60%, 100% { opacity: 0.3; transform: scale(0.8); }
+    30%           { opacity: 1;   transform: scale(1); }
+}
+
+/* Input area */
+#campusai-input-area {
+    padding: 12px 16px;
+    border-top: 1px solid #e0e0e0;
+    background: #fff;
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+#campusai-input {
+    flex: 1;
+    border: 1px solid #ddd;
+    border-radius: 20px;
+    padding: 10px 16px;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+#campusai-input:focus {
+    border-color: var(--campusai-color, #0066CC);
+}
+
+#campusai-input::placeholder {
+    color: #999;
+}
+
+#campusai-send {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--campusai-color, #0066CC);
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: opacity 0.2s, transform 0.2s;
+}
+
+#campusai-send:hover {
+    transform: scale(1.05);
+}
+
+#campusai-send:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+#campusai-send svg {
+    width: 20px;
+    height: 20px;
+    fill: currentColor;
+}
+
+/* Rate limit notice */
+.rate-limit {
+    font-size: 11px;
+    color: #999;
+    text-align: center;
+    padding: 2px 0 6px;
+    background: #fff;
+}
+
+/* Mobile responsive */
+@media (max-width: 480px) {
+    #campusai-modal {
+        bottom: 0;
+        left: 0 !important;
+        right: 0 !important;
+        width: 100%;
+        max-width: 100%;
+        height: 100%;
+        max-height: 100%;
+        border-radius: 0;
+    }
+
+    #campusai-modal.open {
+        animation: campusai-slide-up-mobile 0.25s ease;
+    }
+
+    @keyframes campusai-slide-up-mobile {
+        from { transform: translateY(100%); }
+        to   { transform: translateY(0); }
+    }
+
+    #campusai-fab.bottom-right { bottom: 16px; right: 16px; }
+    #campusai-fab.bottom-left  { bottom: 16px; left: 16px; }
+}
