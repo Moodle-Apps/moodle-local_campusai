@@ -14,15 +14,76 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions\teacher;
 /**
+ * Courses where the user is a teacher.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class teaching_courses extends base_teacher {
+    /**
+     * Returns the identifier.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'teacher_teaching_courses';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the human-readable description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_teacher_teaching_courses_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'What courses am I teaching?',
+            'List my teaching courses.',
+        ];
+    }
 
+    /**
+     * Returns the JSON schema parameters.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type'       => 'object',
+            'properties' => new \stdClass(),
+            'required'   => [],
+        ];
+    }
 
- namespace local_campusai\functions\teacher; defined('MOODLE_INTERNAL') || die(); class teaching_courses extends base_teacher { public function get_definition(): array { return [ 'name' => 'get_my_teaching_courses', 'description' => 'Get the list of courses where you have a teaching role.', 'parameters' => ['type' => 'object', 'properties' => new \stdClass()], ]; } public function execute(array $arguments): array { $courseids = $this->get_teaching_course_ids(); if (empty($courseids)) { return ['courses' => [], 'message' => 'You are not assigned as teacher in any course.']; } global $DB; $courses = $DB->get_records_list('course', 'id', $courseids, 'fullname ASC', 'id, fullname, shortname, visible'); $result = []; foreach ($courses as $course) { $studentcount = count_enrolled_users(\context_course::instance($course->id), 5); $result[] = [ 'id' => (int)$course->id, 'name' => $course->fullname, 'shortname' => $course->shortname, 'students' => $studentcount, 'visible' => (bool)$course->visible, ]; } return ['courses' => $result]; } } 
+    /**
+     * Executes the function and returns a plain text result.
+     * @param int $userid
+     * @param array $args
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        $courses = get_user_capability_course('moodle/course:update', $userid);
+
+        if (!$courses) {
+            return get_string('function_teacher_teaching_courses_empty', 'local_campusai');
+        }
+
+        $lines = [];
+        foreach ($courses as $course) {
+            $lines[] = "- {$course->shortname}: {$course->fullname}";
+        }
+
+        return implode("\n", $lines);
+    }
+}

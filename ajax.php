@@ -15,14 +15,67 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
+ * AJAX endpoint for the Campus Assistant chat.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+defined('MOODLE_INTERNAL') || die();
 
+require(__DIR__ . '/../../config.php');
+require_login();
 
+header('Content-Type: application/json; charset=utf-8');
 
-require(dirname(dirname(dirname(__FILE__))) . '/config.php'); header('Content-Type: application/json'); if ($_SERVER['REQUEST_METHOD'] !== 'POST') { header('HTTP/1.1 405 Method Not Allowed'); echo json_encode(['success' => false, 'message' => 'Method not allowed']); exit; } try { require_login(); if (isguestuser() || !isloggedin()) { echo json_encode(['success' => false, 'message' => get_string('error_generic', 'local_campusai')]); exit; } confirm_sesskey(required_param('sesskey', PARAM_RAW)); $context = context_system::instance(); require_capability('local/campusai:use', $context); $license = \local_campusai\license_manager::get_status(); if (!$license['valid']) { echo json_encode([ 'success' => false, 'message' => '🔒 License not active: ' . ($license['error'] ?? 'Unknown error') . '. Go to Site Administration > Plugins > Campus Assistant to configure your license key.', ]); exit; } $message = required_param('message', PARAM_RAW); $lang = optional_param('lang', 'es', PARAM_ALPHA); $handler = new \local_campusai\handler($USER->id); $handler->set_language($lang); $response = $handler->process($message); echo json_encode($response); } catch (\Throwable $e) { error_log('Campus Assistant error: ' . $e->getMessage() . "\n" . $e->getTraceAsString()); echo json_encode(['success' => false, 'message' => get_string('error_generic', 'local_campusai')]); } 
+$response = [
+    'reply'    => '',
+    'warnings' => [],
+];
+
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    $response['warnings'][] = [
+        'item'        => 'campusai',
+        'itemid'      => 0,
+        'warningcode' => 'error_method_not_allowed',
+        'message'     => get_string('error_method_not_allowed', 'local_campusai'),
+    ];
+    echo json_encode($response);
+    exit;
+}
+
+require_sesskey();
+
+$context = context_system::instance();
+if (!has_capability('local/campusai:use', $context)) {
+    $response['warnings'][] = [
+        'item'        => 'campusai',
+        'itemid'      => 0,
+        'warningcode' => 'nopermissions',
+        'message'     => get_string('error_generic', 'local_campusai'),
+    ];
+    echo json_encode($response);
+    exit;
+}
+
+$message = optional_param('message', '', PARAM_RAW_TRIMMED);
+if ($message === '') {
+    echo json_encode($response);
+    exit;
+}
+
+try {
+    $reply = \local_campusai\handler::handle($USER->id, $message);
+    $response['reply'] = $reply;
+} catch (\Throwable $e) {
+    debugging('Campus Assistant AJAX error: ' . $e->getMessage(), DEBUG_DEVELOPER);
+    $response['warnings'][] = [
+        'item'        => 'campusai',
+        'itemid'      => 0,
+        'warningcode' => 'error_generic',
+        'message'     => get_string('error_generic', 'local_campusai'),
+    ];
+}
+
+echo json_encode($response);

@@ -14,15 +14,112 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions\teacher;
 /**
+ * Course completion overview.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class course_completion_overview extends base_teacher {
+    /**
+     * Returns the identifier.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'teacher_course_completion_overview';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the human-readable description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_teacher_course_completion_overview_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'How many students have completed my course?',
+            'Show course completion overview.',
+        ];
+    }
 
+    /**
+     * Returns the JSON schema parameters.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type'       => 'object',
+            'properties' => [
+                'courseid' => [
+                    'type'        => 'integer',
+                    'description' => get_string('function_teacher_course_completion_overview_param_courseid', 'local_campusai'),
+                ],
+            ],
+            'required'   => [],
+        ];
+    }
 
-namespace local_campusai\functions\teacher; defined('MOODLE_INTERNAL') || die(); class course_completion_overview extends base_teacher { public function get_definition(): array { return [ 'name' => 'get_course_completion_overview', 'description' => 'Get the completion percentage for each student in a course.', 'parameters' => [ 'type' => 'object', 'properties' => [ 'course_id' => ['type' => 'integer', 'description' => 'The course ID.'], ], 'required' => ['course_id'], ], ]; } public function execute(array $arguments): array { global $DB; $courseid = (int)($arguments['course_id'] ?? 0); if (!$courseid || !$this->is_teacher_in_course($courseid)) { return ['error' => 'Invalid course or you are not a teacher in this course.']; } $course = get_course($courseid); $completion = new \completion_info($course); if (!$completion->is_enabled()) { return ['course' => $course->fullname, 'message' => 'Completion tracking not enabled.']; } $context = \context_course::instance($courseid); $students = get_role_users(5, $context, false, 'u.id, u.firstname, u.lastname', 'u.lastname ASC', '', '', 500); $modinfo = get_fast_modinfo($courseid); $cms = $modinfo->get_cms(); $trackable = array_filter($cms, fn($cm) => $cm->completion); if (empty($trackable)) { return ['course' => $course->fullname, 'message' => 'No trackable activities.']; } $result = []; foreach ($students as $student) { $completed = 0; foreach ($trackable as $cm) { $data = $completion->get_data($cm, false, $student->id); if ($data->completionstate == COMPLETION_COMPLETE || $data->completionstate == COMPLETION_COMPLETE_PASS) { $completed++; } } $pct = round(($completed / count($trackable)) * 100); $result[] = [ 'name' => trim($student->firstname . ' ' . $student->lastname), 'completion' => $pct . '%', 'completed_activities' => $completed, 'total_activities' => count($trackable), ]; } return ['course' => $course->fullname, 'students' => $result]; } } 
+    /**
+     * Executes the function and returns a plain text result.
+     * @param int $userid
+     * @param array $args
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        global $DB;
+
+        $courseid = !empty($args['courseid']) ? (int) $args['courseid'] : 0;
+
+        if ($courseid) {
+            $course = $DB->get_record('course', ['id' => $courseid]);
+            if (!$course || !has_capability('moodle/course:update', \context_course::instance($courseid), $userid)) {
+                return get_string('function_teacher_course_completion_overview_not_teacher', 'local_campusai');
+            }
+            $courses = [$course];
+        } else {
+            $courses = get_user_capability_course('moodle/course:update', $userid);
+            if (!$courses) {
+                return get_string('function_teacher_course_completion_overview_no_teaching', 'local_campusai');
+            }
+        }
+
+        $lines = [];
+        foreach ($courses as $course) {
+            $context = \context_course::instance($course->id);
+            $students = get_enrolled_users($context, 'mod/assign:submit');
+            $total = count($students);
+
+            $completed = $DB->count_records_sql(
+                "SELECT COUNT(*)
+                   FROM {course_completions}
+                  WHERE course = :courseid
+                    AND timecompleted > 0",
+                ['courseid' => $course->id]
+            );
+
+            $lines[] = get_string('function_teacher_course_completion_overview_item', 'local_campusai', (object) [
+                'shortname' => $course->shortname,
+                'completed' => $completed,
+                'total' => $total,
+            ]);
+        }
+
+        if (empty($lines)) {
+            return get_string('function_teacher_course_completion_overview_empty', 'local_campusai');
+        }
+
+        return implode("\n", $lines);
+    }
+}

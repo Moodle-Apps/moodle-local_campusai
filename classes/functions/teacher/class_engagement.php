@@ -14,20 +14,131 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions\teacher;
 /**
+ * Class engagement level.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class class_engagement extends base_teacher {
+    /**
+     * Returns the identifier.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'teacher_class_engagement';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the human-readable description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_teacher_class_engagement_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'How engaged is my class?',
+            'Show active students and forum posts.',
+        ];
+    }
 
+    /**
+     * Returns the JSON schema parameters.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type'       => 'object',
+            'properties' => [
+                'courseid' => [
+                    'type'        => 'integer',
+                    'description' => get_string('function_teacher_class_engagement_param_courseid', 'local_campusai'),
+                ],
+            ],
+            'required'   => ['courseid'],
+        ];
+    }
 
-namespace local_campusai\functions\teacher; defined('MOODLE_INTERNAL') || die(); class class_engagement extends base_teacher { public function get_definition(): array { return [ 'name' => 'get_class_engagement', 'description' => 'Get class engagement metrics: logins, views, and forum participation over recent days.', 'parameters' => [ 'type' => 'object', 'properties' => [ 'course_id' => ['type' => 'integer', 'description' => 'The course ID.'], 'days' => ['type' => 'integer', 'description' => 'Number of days to analyze (default 30).'], ], 'required' => ['course_id'], ], ]; } public function execute(array $arguments): array { global $DB; $courseid = (int)($arguments['course_id'] ?? 0); $days = (int)($arguments['days'] ?? 30); if (!$courseid || !$this->is_teacher_in_course($courseid)) { return ['error' => 'Invalid course or you are not a teacher in this course.']; } $course = get_course($courseid); $cutoff = time() - ($days * DAYSECS); $logins = $DB->count_records_select( 'logstore_standard_log', 'courseid = ? AND action = ? AND timecreated >= ?', [$courseid, 'viewed', $cutoff] ); $activeusers = $DB->count_records_select( 'logstore_standard_log', 'courseid = ? AND timecreated >= ?', [$courseid, $cutoff], 'COUNT(DISTINCT userid)' ); $forumposts = $DB->count_records_select( 'logstore_standard_log', 'courseid = ? AND component = ? AND timecreated >= ?', [$courseid, 'mod_forum', $cutoff] ); $submissions = $DB->count_records_select( 'logstore_standard_log', 'courseid = ? AND component = ? AND action = ? AND timecreated >= ?', [$courseid, 'mod_assign', 'submitted', $cutoff] ); $sql = "SELECT FROM_UNIXTIME(timecreated, '%Y-%m-%d') AS day,
-                       COUNT(DISTINCT userid) AS users,
-                       COUNT(*) AS events
-                  FROM {logstore_standard_log}
-                 WHERE courseid = ? AND timecreated >= ?
-              GROUP BY day ORDER BY day ASC"; $daily = $DB->get_records_sql($sql, [$courseid, $cutoff]); $trend = []; foreach ($daily as $day) { $trend[] = ['date' => $day->day, 'active_users' => (int)$day->users, 'events' => (int)$day->events]; } return [ 'course' => $course->fullname, 'period_days' => $days, 'total_events' => (int)$logins, 'active_users' => (int)$activeusers, 'forum_interactions' => (int)$forumposts, 'submissions' => (int)$submissions, 'daily_trend' => $trend, ]; } } 
+    /**
+     * Executes the function and returns a plain text result.
+     * @param int $userid
+     * @param array $args
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        global $DB;
+
+        $courseid = !empty($args['courseid']) ? (int) $args['courseid'] : 0;
+        if (!$courseid) {
+            return get_string('function_teacher_class_engagement_missing_courseid', 'local_campusai');
+        }
+
+        $course = $DB->get_record('course', ['id' => $courseid]);
+        if (!$course || !has_capability('moodle/course:update', \context_course::instance($courseid), $userid)) {
+            return get_string('function_teacher_class_engagement_not_teacher', 'local_campusai');
+        }
+
+        $context = \context_course::instance($courseid);
+        $students = get_enrolled_users($context, 'mod/assign:submit');
+        $total = count($students);
+
+        if (!$total) {
+            return get_string('function_teacher_class_engagement_no_students', 'local_campusai');
+        }
+
+        $since = time() - (7 * DAYSECS);
+        $userids = array_keys($students);
+        [$insql, $inparams] = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED, 'u');
+
+        $active = $DB->count_records_sql(
+            "SELECT COUNT(DISTINCT ul.userid)
+               FROM {user_lastaccess} ul
+              WHERE ul.courseid = :courseid
+                AND ul.userid $insql
+                AND ul.timeaccess > :since",
+            array_merge(['courseid' => $courseid, 'since' => $since], $inparams)
+        );
+
+        $forumposts = $DB->count_records_sql(
+            "SELECT COUNT(p.id)
+               FROM {forum_posts} p
+               JOIN {forum_discussions} d ON d.id = p.discussion
+               JOIN {forum} f ON f.id = d.forum
+              WHERE f.course = :courseid
+                AND p.created > :since",
+            ['courseid' => $courseid, 'since' => $since]
+        );
+
+        $submissions = $DB->count_records_sql(
+            "SELECT COUNT(s.id)
+               FROM {assign_submission} s
+               JOIN {assign} a ON a.id = s.assignment
+              WHERE a.course = :courseid
+                AND s.status = 'submitted'
+                AND s.timemodified > :since",
+            ['courseid' => $courseid, 'since' => $since]
+        );
+
+        $percentage = round($active / $total * 100);
+
+        return get_string('function_teacher_class_engagement_result', 'local_campusai', (object) [
+            'percentage' => $percentage,
+            'active' => $active,
+            'total' => $total,
+            'forumposts' => $forumposts,
+            'submissions' => $submissions,
+        ]);
+    }
+}

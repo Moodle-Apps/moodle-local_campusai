@@ -14,15 +14,38 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\provider;
+
 /**
+ * Common interface for AI providers.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+interface provider_interface {
+    /**
+     * Returns the provider identifier.
+     *
+     * @return string
+     */
+    public static function name(): string;
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
-
-
-
- namespace local_campusai\provider; defined('MOODLE_INTERNAL') || die(); interface provider_interface { public function chat(array $messages, array $functions, string $systemprompt, int $maxtokens): array; public function continue_with_result(array $messages, array $functions, string $systemprompt, int $maxtokens): array; public function get_name(): string; } 
+    /**
+     * Sends a message to the LLM and returns a normalised response.
+     *
+     * @param string $systemprompt System instructions.
+     * @param array $messages Conversation history.
+     * @param array $tools Function calling schema in OpenAI tool format.
+     * @param string $model Model identifier.
+     * @param int $maxtokens Maximum tokens to generate.
+     * @return array Normalised response with keys content, tool_calls and tokens.
+     */
+    public function chat(
+        string $systemprompt,
+        array $messages,
+        array $tools,
+        string $model,
+        int $maxtokens
+    ): array;
+}

@@ -15,14 +15,32 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
+ * Web service definitions for Campus Assistant.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+defined('MOODLE_INTERNAL') || die();
 
+$services = [
+    'local_campusai_chat' => [
+        'functions'       => ['local_campusai_chat_send_message'],
+        'restrictedusers' => 0,
+        'enabled'         => 1,
+    ],
+];
 
-
- defined('MOODLE_INTERNAL') || die(); $services = [ 'local_campusai_chat' => [ 'functions' => ['local_campusai_chat'], 'restrictedusers' => 0, 'enabled' => 1, ], ]; $functions = [ 'local_campusai_chat' => [ 'classname' => 'local_campusai\external\chat', 'methodname' => 'send_message', 'classpath' => '', 'description' => 'Send a message to the Campus Assistant', 'type' => 'write', 'ajax' => true, 'capabilities' => 'local/campusai:use', 'loginrequired' => true, ], ]; 
+$functions = [
+    'local_campusai_chat_send_message' => [
+        'classname'      => 'local_campusai\external\chat',
+        'methodname'     => 'send_message',
+        'classpath'      => 'classes/external/chat.php',
+        'description'    => get_string('external_send_message_description', 'local_campusai'),
+        'type'           => 'write',
+        'ajax'           => true,
+        'capabilities'   => 'local/campusai:use',
+        'loginrequired'  => true,
+    ],
+];

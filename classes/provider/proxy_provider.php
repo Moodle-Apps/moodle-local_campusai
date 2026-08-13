@@ -14,15 +14,101 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\provider;
+
 /**
+ * Campus Assistant managed proxy provider.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class proxy_provider implements provider_interface {
+    /** @var string License key. */
+    private string $licensekey;
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /** @var string JWT shared secret. */
+    private string $jwtsecret;
 
+    /**
+     * Constructor.
+     *
+     * @param string $licensekey
+     * @param string $jwtsecret
+     */
+    public function __construct(string $licensekey, string $jwtsecret) {
+        $this->licensekey = $licensekey;
+        $this->jwtsecret = $jwtsecret;
+    }
 
+    /**
+     * Returns the provider identifier.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'proxy';
+    }
 
- namespace local_campusai\provider; use moodle_exception; defined('MOODLE_INTERNAL') || die(); class proxy_provider implements provider_interface { protected $licensekey; const SERVER_URL = 'https://campusassistant.app/app/api/chat.php'; public function __construct(string $licensekey) { $this->licensekey = $licensekey; } public function chat(array $messages, array $functions, string $systemprompt, int $maxtokens): array { return $this->request($messages, $functions, $systemprompt, $maxtokens); } public function continue_with_result(array $messages, array $functions, string $systemprompt, int $maxtokens): array { return $this->request($messages, $functions, $systemprompt, $maxtokens); } protected function request(array $messages, array $functions, string $systemprompt, int $maxtokens): array { global $CFG; $payload = [ 'license_key' => $this->licensekey, 'domain' => parse_url($CFG->wwwroot, PHP_URL_HOST), 'messages' => $messages, 'functions' => $functions, 'system_prompt' => $systemprompt, 'max_tokens' => $maxtokens, ]; $ch = curl_init(self::SERVER_URL); curl_setopt_array($ch, [ CURLOPT_RETURNTRANSFER => true, CURLOPT_POST => true, CURLOPT_POSTFIELDS => json_encode($payload), CURLOPT_HTTPHEADER => ['Content-Type: application/json'], CURLOPT_TIMEOUT => 45, CURLOPT_CONNECTTIMEOUT => 10, CURLOPT_SSL_VERIFYPEER => true, ]); $response = curl_exec($ch); $httpcode = curl_getinfo($ch, CURLINFO_HTTP_CODE); $error = curl_error($ch); curl_close($ch); if ($error) { throw new moodle_exception('error_provider', 'local_campusai', '', null, 'Proxy: ' . $error); } $data = json_decode($response, true); if (!$data || isset($data['error'])) { $msg = $data['error'] ?? 'Invalid proxy response'; throw new moodle_exception('error_provider', 'local_campusai', '', null, 'Proxy: ' . $msg); } return [ 'type' => $data['type'] ?? 'text', 'content' => $data['content'] ?? '', 'name' => $data['name'] ?? '', 'arguments' => $data['arguments'] ?? [], 'id' => $data['id'] ?? '', 'tokens' => $data['tokens'] ?? 0, ]; } public function get_name(): string { return 'proxy'; } } 
+    /**
+     * Sends the request to the managed proxy.
+     *
+     * @param string $systemprompt
+     * @param array $messages
+     * @param array $tools
+     * @param string $model
+     * @param int $maxtokens
+     * @return array
+     */
+    public function chat(
+        string $systemprompt,
+        array $messages,
+        array $tools,
+        string $model,
+        int $maxtokens
+    ): array {
+        global $USER;
+
+        $url = 'https://campusassistant.app/app/api/chat.php';
+
+        $payload = [
+            'messages' => $messages,
+            'tools'    => $tools,
+            'system'   => $systemprompt,
+            'model'    => $model,
+        ];
+
+        $curl = new \curl();
+        $curl->setHeader('Authorization: Bearer ' . $this->licensekey);
+        $curl->setHeader('Content-Type: application/json');
+        $curl->setopt(['CURLOPT_TIMEOUT' => 30]);
+
+        if (!empty($this->jwtsecret)) {
+            $jwt = $this->sign_jwt((int) $USER->id);
+            $curl->setHeader('X-Assistant-JWT: ' . $jwt);
+        }
+
+        $response = $curl->post($url, json_encode($payload));
+
+        return provider_helper::parse_openai_like($curl, $response);
+    }
+
+    /**
+     * Signs a HS256 JWT for the proxy.
+     *
+     * @param int $userid
+     * @return string
+     */
+    private function sign_jwt(int $userid): string {
+        $header = json_encode(['typ' => 'JWT', 'alg' => 'HS256']);
+        $payload = json_encode(['sub' => $userid, 'exp' => time() + 3600]);
+
+        $base64header = str_replace(['+', '/', '='], ['-', '_', ''], base64_encode($header));
+        $base64payload = str_replace(['+', '/', '='], ['-', '_', ''], base64_encode($payload));
+
+        $signature = hash_hmac('sha256', $base64header . '.' . $base64payload, $this->jwtsecret, true);
+        $base64signature = str_replace(['+', '/', '='], ['-', '_', ''], base64_encode($signature));
+
+        return $base64header . '.' . $base64payload . '.' . $base64signature;
+    }
+}

@@ -15,17 +15,17 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Version definition for local_campusai.
+ * Plugin version and maturity metadata.
  *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 defined('MOODLE_INTERNAL') || die();
 
+$plugin->version   = 2026090122;   // YYYYMMDDXX, release timestamp.
+$plugin->requires  = 2024041500;   // Moodle 4.4.
 $plugin->component = 'local_campusai';
-$plugin->version   = 2026080500;
-$plugin->requires  = 2022112800; // Moodle 4.1 (LTS).
 $plugin->maturity  = MATURITY_STABLE;
-$plugin->release   = '2.2.1';
+$plugin->release   = '2.2.2';

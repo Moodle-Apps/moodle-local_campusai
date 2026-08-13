@@ -14,15 +14,138 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai;
+
+use moodle_url;
+
 /**
+ * Hook callbacks for Campus Assistant.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class hook_callbacks {
+    /**
+     * Injects the chat widget assets and configuration on every page.
+     *
+     * @param \core\hook\output\before_standard_head_html_generation $hook
+     * @return void
+     */
+    public static function before_standard_head($hook): void {
+        global $PAGE, $USER;
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+        if (!get_config('local_campusai', 'enabled')) {
+            return;
+        }
 
+        if (!isloggedin() || isguestuser()) {
+            return;
+        }
 
+        $context = \context_system::instance();
+        if (!has_capability('local/campusai:use', $context)) {
+            return;
+        }
 
-namespace local_campusai; defined('MOODLE_INTERNAL') || die(); class hook_callbacks { public static function before_standard_head_html_generation(\core\hook\output\before_standard_head_html_generation $hook): void { global $PAGE, $USER; file_put_contents('/tmp/campusai_debug.log', date('H:i:s') . ' CALLED user=' . ($USER->id ?? 'null') . ' layout=' . ($PAGE->pagelayout ?? 'null') . ' url=' . ($PAGE->url ?? 'null') . "\n", FILE_APPEND); if (!isloggedin()) { file_put_contents('/tmp/campusai_debug.log', '  -> EXIT: not logged in' . "\n", FILE_APPEND); return; } if (isguestuser()) { file_put_contents('/tmp/campusai_debug.log', '  -> EXIT: guest' . "\n", FILE_APPEND); return; } if (!get_config('local_campusai', 'enabled')) { file_put_contents('/tmp/campusai_debug.log', '  -> EXIT: disabled' . "\n", FILE_APPEND); return; } $licensekey = trim((string) get_config('local_campusai', 'licensekey')); if (empty($licensekey)) { return; } try { $licenseStatus = \local_campusai\license_manager::get_status(); if (!$licenseStatus['valid']) { return; } } catch (\Throwable $e) { return; } $context = \context_system::instance(); if (!has_capability('local/campusai:use', $context)) { file_put_contents('/tmp/campusai_debug.log', '  -> EXIT: no capability' . "\n", FILE_APPEND); return; } if ($PAGE->pagelayout === 'admin' || $PAGE->pagelayout === 'maintenance') { file_put_contents('/tmp/campusai_debug.log', '  -> EXIT: admin/maintenance layout' . "\n", FILE_APPEND); return; } file_put_contents('/tmp/campusai_debug.log', '  -> INJECTING JS' . "\n", FILE_APPEND); $config = [ 'ajaxUrl' => (string) new \moodle_url('/local/campusai/ajax.php'), 'sesskey' => sesskey(), 'color' => get_config('local_campusai', 'color') ?: '#0066CC', 'position' => get_config('local_campusai', 'position') ?: 'bottom-right', 'title' => get_config('local_campusai', 'title') ?: 'Campus Assistant', 'welcome' => get_config('local_campusai', 'welcome') ?: 'Hi! How can I help you today?', 'placeholder' => 'Ask me anything...', 'quickExams' => '📅 Exams', 'quickTasks' => '📝 Missing?', 'quickCourses' => '📚 Courses', 'quickExamsText' => 'What exams do I have coming up?', 'quickTasksText' => 'What assignments have I not submitted yet?', 'quickCoursesText' => 'What courses am I enrolled in?', 'errorText' => 'Sorry, I could not process your request.', 'ratelimit' => (int) get_config('local_campusai', 'ratelimit'), ]; $PAGE->requires->css('/local/campusai/styles.css'); $PAGE->requires->js_call_amd('local_campusai/campusai', 'init', [$config]); } } 
+        $provider = get_config('local_campusai', 'provider');
+        $licensekey = get_config('local_campusai', 'licensekey');
+        if ($provider === 'proxy' && empty($licensekey)) {
+            return;
+        }
+
+        $ajaxurl = new moodle_url('/local/campusai/ajax.php');
+        $iconurl = self::get_fab_icon_url();
+
+        $config = [
+            'enabled'     => true,
+            'ajaxUrl'     => $ajaxurl->out(false),
+            'sesskey'     => sesskey(),
+            'color'       => get_config('local_campusai', 'color'),
+            'position'    => get_config('local_campusai', 'position'),
+            'title'       => get_config('local_campusai', 'title'),
+            'welcome'     => get_config('local_campusai', 'welcome'),
+            'defaultLang' => get_config('local_campusai', 'language'),
+            'iconUrl'     => $iconurl ? $iconurl->out(false) : '',
+            'isAdmin'     => functions\registry::is_admin_mode($USER->id),
+            'userRole'    => functions\registry::get_role_type($USER->id),
+            'examples'    => functions\registry::examples_for_user($USER->id),
+        ];
+
+        $strings = [
+            'pluginname',
+            'error_generic',
+            'error_ratelimit',
+            'placeholder',
+            'default_welcome',
+            'widget_online',
+            'widget_close',
+            'widget_send',
+            'widget_title_fallback',
+            'widget_admin_suffix',
+            'widget_help',
+            'widget_help_title',
+            'widget_examples_student',
+            'widget_examples_teacher',
+            'widget_examples_admin',
+            'quick_courses_label',
+            'quick_courses_text',
+            'quick_exams_label',
+            'quick_exams_text',
+            'quick_tasks_label',
+            'quick_tasks_text',
+            'quick_teaching_courses_label',
+            'quick_teaching_courses_text',
+            'quick_overdue_label',
+            'quick_overdue_text',
+            'quick_needing_grading_label',
+            'quick_needing_grading_text',
+            'quick_campus_stats_label',
+            'quick_campus_stats_text',
+            'quick_course_list_admin_label',
+            'quick_course_list_admin_text',
+            'quick_inactive_users_label',
+            'quick_inactive_users_text',
+            'quick_help_label',
+        ];
+        $stringdata = [];
+        foreach ($strings as $key) {
+            $stringdata[$key] = get_string($key, 'local_campusai');
+        }
+
+        $json = json_encode($config, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
+        $stringsjson = json_encode($stringdata, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
+        $hook->add_html("<script>window.campusaiConfig = {$json}; window.campusaiStrings = {$stringsjson};</script>");
+
+        $PAGE->requires->js('/local/campusai/javascript/campusai.js');
+        $PAGE->requires->css('/local/campusai/styles.css');
+    }
+
+    /**
+     * Returns the URL of the uploaded FAB icon, or null for the default.
+     *
+     * @return moodle_url|null
+     */
+    private static function get_fab_icon_url(): ?moodle_url {
+        global $CFG;
+
+        $context = \context_system::instance();
+        $fs = get_file_storage();
+        $files = $fs->get_area_files($context->id, 'local_campusai', 'fabicon', 0, 'sortorder', false);
+
+        foreach ($files as $file) {
+            if ($file->is_valid_image()) {
+                return moodle_url::make_pluginfile_url(
+                    $file->get_contextid(),
+                    $file->get_component(),
+                    $file->get_filearea(),
+                    $file->get_itemid(),
+                    $file->get_filepath(),
+                    $file->get_filename()
+                );
+            }
+        }
+
+        return null;
+    }
+}

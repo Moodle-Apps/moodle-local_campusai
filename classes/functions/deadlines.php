@@ -14,15 +14,106 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions;
+
 /**
+ * deadlines function.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class deadlines extends base_function {
+    /**
+     * Returns the identifier.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'deadlines';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the human-readable description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_deadlines_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'What deadlines do I have coming up?',
+            'Show upcoming due dates.',
+        ];
+    }
 
+    /**
+     * Returns the JSON schema parameters.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'days' => [
+                    'type' => 'integer',
+                    'description' => get_string('function_deadlines_param_days', 'local_campusai'),
+                    'default' => 14,
+                ],
+            ],
+        ];
+    }
 
- namespace local_campusai\functions; defined('MOODLE_INTERNAL') || die(); class deadlines extends base_function { public function get_definition(): array { return [ 'name' => 'get_deadlines', 'description' => 'Get all academic deadlines (assignments, quizzes, workshops) due in the next 7 days.', 'parameters' => [ 'type' => 'object', 'properties' => new \stdClass(), ], ]; } public function execute(array $arguments): array { global $DB; $now = time(); $future = $now + (7 * DAYSECS); $courses = enrol_get_users_courses($this->userid); $deadlines = []; $modtypes = ['assign', 'quiz', 'workshop', 'forum', 'choice', 'lesson']; foreach ($courses as $course) { $modinfo = get_fast_modinfo($course->id, $this->userid); foreach ($modtypes as $modtype) { $instances = $modinfo->get_instances_of($modtype); foreach ($instances as $cm) { if (!$cm->visible || !$cm->uservisible) { continue; } $deadline = 0; switch ($modtype) { case 'assign': $record = $DB->get_record('assign', ['id' => $cm->instance], 'duedate', IGNORE_MISSING); $deadline = $record->duedate ?? 0; break; case 'quiz': $record = $DB->get_record('quiz', ['id' => $cm->instance], 'timeclose', IGNORE_MISSING); $deadline = $record->timeclose ?? 0; break; case 'workshop': $record = $DB->get_record('workshop', ['id' => $cm->instance], 'submissionend, assessmentend', IGNORE_MISSING); $deadline = max($record->submissionend ?? 0, $record->assessmentend ?? 0); break; case 'forum': $record = $DB->get_record('forum', ['id' => $cm->instance], 'duedate', IGNORE_MISSING); $deadline = $record->duedate ?? 0; break; case 'choice': $record = $DB->get_record('choice', ['id' => $cm->instance], 'timeclose', IGNORE_MISSING); $deadline = $record->timeclose ?? 0; break; case 'lesson': $record = $DB->get_record('lesson', ['id' => $cm->instance], 'deadline', IGNORE_MISSING); $deadline = $record->deadline ?? 0; break; } if ($deadline > 0 && $deadline >= $now && $deadline <= $future) { $deadlines[] = [ 'course' => $course->fullname, 'activity' => $cm->name, 'type' => $modtype, 'deadline' => $this->format_date($deadline), 'timestamp' => $deadline, ]; } } } } usort($deadlines, function($a, $b) { return $a['timestamp'] <=> $b['timestamp']; }); return ['deadlines' => $deadlines]; } } 
+    /**
+     * Executes the function and returns a plain text result.
+     * @param int $userid
+     * @param array $args
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        global $DB;
+
+        $days = $args['days'] ?? 14;
+        $now = time();
+        $end = $now + ($days * DAYSECS);
+
+        $courses = enrol_get_users_courses($userid, true, 'id');
+        if (empty($courses)) {
+            return get_string('error_not_enrolled', 'local_campusai');
+        }
+
+        $courseids = array_keys($courses);
+        [$insql, $params] = $DB->get_in_or_equal($courseids, SQL_PARAMS_NAMED);
+        $params['now'] = $now;
+        $params['end'] = $end;
+
+        $sql = "SELECT a.id, a.name, a.duedate, cm.course
+                  FROM {assign} a
+                  JOIN {course_modules} cm ON cm.instance = a.id AND cm.module = :assignmodule
+                 WHERE cm.course $insql AND a.duedate >= :now AND a.duedate <= :end
+              ORDER BY a.duedate ASC";
+        $params['assignmodule'] = $DB->get_field('modules', 'id', ['name' => 'assign']);
+
+        $records = $DB->get_records_sql($sql, $params, 0, 20);
+
+        if (empty($records)) {
+            return get_string('function_deadlines_empty', 'local_campusai');
+        }
+
+        $lines = [];
+        foreach ($records as $r) {
+            $date = userdate($r->duedate, get_string('strftimedatetime', 'langconfig'));
+            $lines[] = '- **' . $r->name . '** — ' . $date;
+        }
+
+        return implode("\n", $lines);
+    }
+}

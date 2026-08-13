@@ -14,15 +14,196 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai;
+
+use local_campusai\functions\registry;
+use local_campusai\provider\factory;
+
 /**
+ * Orchestrates provider calls, function execution and audit logging.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class handler {
+    /** @var int Maximum tool call iterations. */
+    private const MAX_TOOL_ITERATIONS = 5;
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /** @var int Default max tokens for provider calls. */
+    private const DEFAULT_MAX_TOKENS = 1024;
 
+    /**
+     * Handles a user message and returns the assistant reply.
+     *
+     * @param int $userid User ID.
+     * @param string $message Raw user message.
+     * @return string Assistant reply.
+     */
+    public static function handle(int $userid, string $message): string {
+        $message = security::sanitize_user_input($message);
 
+        if ($message === '') {
+            return get_string('error_generic', 'local_campusai');
+        }
 
-namespace local_campusai; use local_campusai\provider\factory; use local_campusai\functions\registry; class handler { protected $userid; protected $conversation; protected $ratelimit; protected $freemode; protected $language = 'es'; protected $license_token; protected static $langnames = [ 'es' => 'Spanish', 'en' => 'English', 'fr' => 'French', 'de' => 'German', 'it' => 'Italian', 'pt' => 'Portuguese', ]; const MAX_FUNCTION_ITERATIONS = 5; public function __construct(int $userid, bool $freemode = false) { $this->userid = $userid; $this->freemode = $freemode; $this->conversation = new conversation($userid); $rl = (int) get_config('local_campusai', 'ratelimit'); $this->ratelimit = new ratelimit($userid, $rl > 0 ? $rl : 20); $this->license_token = \local_campusai\license_manager::get_token(); if ($this->license_token === null) { throw new \moodle_exception('License not active. Configure your license key in settings.'); } } public function set_language(string $lang): void { if (isset(self::$langnames[$lang])) { $this->language = $lang; } } protected function build_system_prompt(): string { $role = registry::get_role_label($this->userid); $langname = self::$langnames[$this->language] ?? 'Spanish'; $langinstruction = "\n\nIMPORTANT: You must respond in {$langname}. Always use {$langname} for all your responses."; if ($role === 'admin') { $base = "You are the campus administrator assistant. You help administrators with campus-wide statistics, enrollment data, grade analysis, and operational insights.\n\nRULES:\n- Answer with aggregate statistics and insights, not individual student data.\n- Present numbers clearly with context.\n- Highlight notable trends or issues.\n- Be concise and data-focused."; return $base . $langinstruction; } if ($role === 'teacher') { $base = "You are the teaching assistant for instructors. You help teachers with grading, student progress, engagement, and course management.\n\nRULES:\n- Focus on actionable insights for the teacher.\n- When listing students, use their names as they appear in the system.\n- Prioritize tasks that need attention (grading, unanswered questions, at-risk students).\n- Present data clearly and concisely.\n- Be proactive about flagging issues."; return $base . $langinstruction; } $base = get_config('local_campusai', 'systemprompt'); if (empty($base)) { $base = "You are a helpful campus assistant for students. Answer questions about their courses, assignments, grades, and deadlines using the available functions.\n\nRULES:\n- Only share the student's own data.\n- Be encouraging but honest about deadlines and performance.\n- Present information clearly."; } return $base . $langinstruction; } public function process(string $usermessage): array { if (!$this->ratelimit->can_send()) { return ['success' => false, 'message' => get_string('error_ratelimit', 'local_campusai'), 'remaining' => 0]; } if (!security::is_safe_input($usermessage)) { return ['success' => false, 'message' => get_string('error_generic', 'local_campusai'), 'remaining' => $this->ratelimit->get_remaining()]; } $this->ratelimit->record_message(); $systemprompt = $this->build_system_prompt(); $maxtokens = (int) get_config('local_campusai', 'maxtokens'); if ($maxtokens <= 0) $maxtokens = 500; $functions = registry::get_definitions($this->userid, $this->freemode); try { $provider = factory::create(); $messages = [ ['role' => 'system', 'content' => $systemprompt], ['role' => 'user', 'content' => $usermessage], ]; $functionscalled = []; $totaltokens = 0; $finalmessage = null; for ($i = 0; $i < self::MAX_FUNCTION_ITERATIONS; $i++) { $response = $provider->chat($messages, $functions, $systemprompt, $maxtokens); $totaltokens += $response['tokens'] ?? 0; if ($response['type'] === 'text') { $finalmessage = $response['content']; break; } $fnname = $response['name']; $fnargs = $response['arguments']; $callid = $response['id']; $messages[] = [ 'role' => 'assistant', 'content' => null, 'tool_calls' => [[ 'id' => $callid, 'type' => 'function', 'function' => [ 'name' => $fnname, 'arguments' => json_encode($fnargs), ], ]], ]; if (registry::is_valid_function($fnname)) { $result = registry::execute($fnname, $this->userid, $fnargs, $this->freemode); } else { $result = ['error' => 'Function not available']; } $functionscalled[] = $fnname; $messages[] = [ 'role' => 'tool', 'tool_call_id' => $callid, 'content' => json_encode($result), ]; } if (!isset($finalmessage)) { $messages[] = [ 'role' => 'user', 'content' => 'Based on the information gathered, please provide a helpful answer to the original question. Do not call any more functions.', ]; $response = $provider->chat($messages, [], $systemprompt, $maxtokens); $finalmessage = ( isset($response['type']) && $response['type'] === 'text' ) ? $response['content'] : get_string('error_generic', 'local_campusai'); } $this->conversation->log_interaction( $usermessage, $finalmessage, $functionscalled, $provider->get_name(), $totaltokens ); $finalmessage = security::sanitise_output($finalmessage); return [ 'success' => true, 'message' => $finalmessage, 'remaining' => $this->ratelimit->get_remaining(), ]; } catch (\Throwable $e) { error_log('Campus Assistant handler error: ' . $e->getMessage()); return [ 'success' => false, 'message' => get_string('error_generic', 'local_campusai'), 'remaining' => $this->ratelimit->get_remaining(), ]; } } public function clear_conversation(): void { $this->conversation->clear(); } } 
+        $context = \context_system::instance();
+        if (!has_capability('local/campusai:use', $context, $userid)) {
+            return get_string('error_generic', 'local_campusai');
+        }
+
+        if (!ratelimit::check($userid)) {
+            return get_string('error_ratelimit', 'local_campusai');
+        }
+
+        $providername = get_config('local_campusai', 'provider');
+        if ($providername === 'proxy' && !license_manager::is_proxy_licensed()) {
+            return get_string('error_license_not_active', 'local_campusai');
+        }
+
+        $functions = registry::for_user($userid);
+        $tools = array_map(fn($fn) => $fn::to_tool(), $functions);
+
+        $systemprompt = get_config('local_campusai', 'systemprompt');
+        if (empty($systemprompt)) {
+            $systemprompt = get_string('default_systemprompt', 'local_campusai');
+        }
+
+        $messages = self::build_history($userid);
+        $messages[] = ['role' => 'user', 'content' => $message];
+
+        $apikey = ($providername === 'proxy')
+            ? get_config('local_campusai', 'licensekey')
+            : get_config('local_campusai', 'apikey');
+        $jwtsecret = get_config('local_campusai', 'jwtsecret');
+        $model = get_config('local_campusai', 'model');
+        $maxtokens = (int) get_config('local_campusai', 'maxtokens');
+        if ($maxtokens <= 0) {
+            $maxtokens = self::DEFAULT_MAX_TOKENS;
+        }
+
+        try {
+            $provider = factory::create($providername, (string) $apikey, (string) $jwtsecret);
+        } catch (\moodle_exception $e) {
+            return get_string('error_provider', 'local_campusai');
+        }
+
+        $functionscalls = [];
+        $totaltokens = 0;
+
+        for ($i = 0; $i < self::MAX_TOOL_ITERATIONS; $i++) {
+            $response = $provider->chat($systemprompt, $messages, $tools, (string) $model, $maxtokens);
+            $totaltokens += $response['tokens'] ?? 0;
+
+            if (empty($response['tool_calls'])) {
+                $assistantmessage = $response['content'] ?? '';
+                break;
+            }
+
+            $messages[] = [
+                'role'         => 'assistant',
+                'content'      => $response['content'] ?? '',
+                'tool_calls'   => self::normalise_tool_calls_for_provider($response['tool_calls']),
+            ];
+
+            foreach ($response['tool_calls'] as $toolcall) {
+                $result = self::execute_function($functions, $userid, $toolcall);
+                $messages[] = [
+                    'role'    => 'tool',
+                    'name'    => $toolcall['name'],
+                    'content' => $result,
+                ];
+                $functionscalls[] = [
+                    'name'      => $toolcall['name'],
+                    'arguments' => $toolcall['arguments'],
+                    'result'    => $result,
+                ];
+            }
+        }
+
+        if (!isset($assistantmessage)) {
+            $assistantmessage = get_string('error_generic', 'local_campusai');
+        }
+
+        $assistantmessage = security::sanitize_assistant_output($assistantmessage);
+
+        conversation::record(
+            $userid,
+            $message,
+            $assistantmessage,
+            $providername,
+            $totaltokens,
+            !empty($functionscalls) ? json_encode($functionscalls) : null
+        );
+
+        ratelimit::increment($userid);
+
+        return $assistantmessage;
+    }
+
+    /**
+     * Builds the recent conversation history for the provider.
+     *
+     * @param int $userid User ID.
+     * @return array
+     */
+    private static function build_history(int $userid): array {
+        $records = conversation::get_recent($userid, 6);
+        $records = array_reverse($records);
+
+        $messages = [];
+        foreach ($records as $record) {
+            $messages[] = ['role' => 'user', 'content' => $record->usermessage];
+            $messages[] = ['role' => 'assistant', 'content' => $record->assistantmessage];
+        }
+
+        return $messages;
+    }
+
+    /**
+     * Executes a function call and returns its string result.
+     *
+     * @param array $functions Available function instances.
+     * @param int $userid User ID.
+     * @param array $toolcall Tool call data.
+     * @return string
+     */
+    private static function execute_function(array $functions, int $userid, array $toolcall): string {
+        $name = $toolcall['name'] ?? '';
+        $args = $toolcall['arguments'] ?? [];
+
+        foreach ($functions as $function) {
+            if ($function::name() === $name) {
+                try {
+                    return $function->execute($userid, $args);
+                } catch (\Throwable $e) {
+                    debugging('Campus Assistant function error: ' . $e->getMessage(), DEBUG_DEVELOPER);
+                    return get_string('error_function_execution', 'local_campusai');
+                }
+            }
+        }
+
+        return get_string('error_function_not_available', 'local_campusai');
+    }
+
+    /**
+     * Normalises tool calls for the provider message format.
+     *
+     * @param array $toolcalls
+     * @return array
+     */
+    private static function normalise_tool_calls_for_provider(array $toolcalls): array {
+        $normalised = [];
+        foreach ($toolcalls as $index => $toolcall) {
+            $normalised[] = [
+                'id'       => (string) $index,
+                'type'     => 'function',
+                'function' => [
+                    'name'      => $toolcall['name'],
+                    'arguments' => json_encode($toolcall['arguments'] ?? []),
+                ],
+            ];
+        }
+        return $normalised;
+    }
+}

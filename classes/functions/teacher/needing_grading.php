@@ -14,15 +14,126 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions\teacher;
 /**
+ * Submissions needing grading.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class needing_grading extends base_teacher {
+    /**
+     * Returns the identifier.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'teacher_needing_grading';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the human-readable description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_teacher_needing_grading_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'What needs grading in my course?',
+            'Show submissions awaiting feedback.',
+        ];
+    }
 
+    /**
+     * Returns the JSON schema parameters.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type'       => 'object',
+            'properties' => [
+                'courseid' => [
+                    'type'        => 'integer',
+                    'description' => get_string('function_teacher_needing_grading_param_courseid', 'local_campusai'),
+                ],
+                'limit' => [
+                    'type'        => 'integer',
+                    'description' => get_string('function_teacher_needing_grading_param_limit', 'local_campusai'),
+                    'default'     => 10,
+                ],
+            ],
+            'required'   => [],
+        ];
+    }
 
-namespace local_campusai\functions\teacher; defined('MOODLE_INTERNAL') || die(); class needing_grading extends base_teacher { public function get_definition(): array { return [ 'name' => 'get_students_needing_grading', 'description' => 'Get student submissions that are pending your grading. Optionally filter by course.', 'parameters' => [ 'type' => 'object', 'properties' => [ 'course_id' => ['type' => 'integer', 'description' => 'Optional course ID to filter.'], ], ], ]; } public function execute(array $arguments): array { global $DB; $courseid = $arguments['course_id'] ?? null; $courseids = $courseid ? (in_array($courseid, $this->get_teaching_course_ids()) ? [$courseid] : []) : $this->get_teaching_course_ids(); if (empty($courseids)) { return ['pending' => [], 'message' => 'No teaching courses found.']; } $result = []; foreach ($courseids as $cid) { $modinfo = get_fast_modinfo($cid, $this->userid); $assigns = $modinfo->get_instances_of('assign'); foreach ($assigns as $cm) { if (!$cm->visible) continue; $submissions = $DB->get_records_select( 'assign_submission', 'assignment = ? AND status = ?', [$cm->instance, 'submitted'], 'timemodified DESC', 'id, userid, timemodified' ); foreach ($submissions as $sub) { $grade = $DB->get_record('assign_grades', ['assignment' => $cm->instance, 'userid' => $sub->userid], 'id', IGNORE_MISSING); if (!$grade) { $user = \core_user::get_user($sub->userid, 'firstname, lastname'); $course = get_course($cid); $result[] = [ 'course' => $course->fullname, 'assignment' => $cm->name, 'student' => $user ? trim($user->firstname . ' ' . $user->lastname) : 'Unknown', 'submitted' => $this->format_date($sub->timemodified), ]; } } } } return ['pending_grading' => $result, 'count' => count($result)]; } } 
+    /**
+     * Executes the function and returns a plain text result.
+     * @param int $userid
+     * @param array $args
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        global $DB;
+
+        $courseid = !empty($args['courseid']) ? (int) $args['courseid'] : 0;
+        $limit = !empty($args['limit']) ? (int) $args['limit'] : 10;
+
+        if ($courseid) {
+            $course = $DB->get_record('course', ['id' => $courseid]);
+            if (!$course || !has_capability('moodle/course:update', \context_course::instance($courseid), $userid)) {
+                return get_string('function_teacher_needing_grading_not_teacher', 'local_campusai');
+            }
+            $courseids = [$courseid];
+        } else {
+            $courses = get_user_capability_course('moodle/course:update', $userid);
+            if (!$courses) {
+                return get_string('function_teacher_needing_grading_no_teaching', 'local_campusai');
+            }
+            $courseids = array_map(function ($c) {
+                return (int) $c->id;
+            }, $courses);
+        }
+
+        [$insql, $inparams] = $DB->get_in_or_equal($courseids, SQL_PARAMS_NAMED, 'c');
+
+        $sql = "SELECT s.id, s.timemodified,
+                       u.firstname, u.lastname,
+                       a.name AS assignmentname, c.shortname
+                  FROM {assign_submission} s
+                  JOIN {assign} a ON a.id = s.assignment
+                  JOIN {course} c ON c.id = a.course
+                  JOIN {user} u ON u.id = s.userid
+                  LEFT JOIN {assign_grades} ag ON ag.assignment = s.assignment
+                       AND ag.userid = s.userid
+                       AND ag.attemptnumber = s.attemptnumber
+                 WHERE s.status = 'submitted'
+                   AND s.latest = 1
+                   AND a.course $insql
+                   AND (ag.id IS NULL OR ag.timemodified < s.timemodified)
+                 ORDER BY s.timemodified ASC";
+
+        $submissions = $DB->get_records_sql($sql, $inparams, 0, $limit);
+
+        if (!$submissions) {
+            return get_string('function_teacher_needing_grading_empty', 'local_campusai');
+        }
+
+        $lines = [];
+        foreach ($submissions as $s) {
+            $date = \userdate($s->timemodified, '%d/%m/%Y');
+            $lines[] = "- {$s->firstname} {$s->lastname}: {$s->assignmentname} ({$s->shortname}, {$date})";
+        }
+
+        return implode("\n", $lines);
+    }
+}

@@ -1,19 +1,19 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<XMLDB PATH="local/campusai/db" VERSION="20260801" COMMENT="XMLDB file for local_campusai plugin."
+<XMLDB PATH="local/campusai/db" VERSION="20260901" COMMENT="XMLDB file for Moodle local/campusai"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-    xsi:noNamespaceSchemaLocation="../../../lib/xmldb/xmldb.xsd">
+    xsi:noNamespaceSchemaLocation="../../../lib/xmldb/xmldb.xsd"
+>
   <TABLES>
-
-    <TABLE NAME="local_campusai_conversation" COMMENT="Stores student interactions for audit.">
+    <TABLE NAME="local_campusai_conversation" COMMENT="Stores each turn of the conversation for audit and privacy.">
       <FIELDS>
         <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
-        <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="User who sent the message"/>
-        <FIELD NAME="usermessage" TYPE="text" NOTNULL="true" SEQUENCE="false" COMMENT="Question from the student"/>
-        <FIELD NAME="assistantmessage" TYPE="text" NOTNULL="true" SEQUENCE="false" COMMENT="Response from the assistant"/>
-        <FIELD NAME="functionscalled" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="JSON array of functions called"/>
-        <FIELD NAME="provider" TYPE="char" LENGTH="30" NOTNULL="true" SEQUENCE="false" COMMENT="AI provider used"/>
-        <FIELD NAME="tokensused" TYPE="int" LENGTH="10" NOTNULL="false" DEFAULT="0" SEQUENCE="false"/>
-        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Unix timestamp"/>
+        <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" COMMENT="Foreign key to user.id"/>
+        <FIELD NAME="usermessage" TYPE="text" NOTNULL="true" COMMENT="User question"/>
+        <FIELD NAME="assistantmessage" TYPE="text" NOTNULL="true" COMMENT="Assistant reply"/>
+        <FIELD NAME="functionscalled" TYPE="text" NOTNULL="false" COMMENT="JSON array of functions called"/>
+        <FIELD NAME="provider" TYPE="char" LENGTH="30" NOTNULL="true" COMMENT="Provider used"/>
+        <FIELD NAME="tokensused" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" COMMENT="Approximate token cost"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" COMMENT="Unix timestamp"/>
       </FIELDS>
       <KEYS>
         <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
@@ -24,13 +24,12 @@
         <INDEX NAME="userid_time" UNIQUE="false" FIELDS="userid, timecreated"/>
       </INDEXES>
     </TABLE>
-
-    <TABLE NAME="local_campusai_ratelimit" COMMENT="Rate limiting tracking.">
+    <TABLE NAME="local_campusai_ratelimit" COMMENT="Rate limiting counters per user.">
       <FIELDS>
         <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
-        <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
-        <FIELD NAME="windowstart" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Unix timestamp of rate window start"/>
-        <FIELD NAME="messagecount" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" COMMENT="Foreign key to user.id"/>
+        <FIELD NAME="windowstart" TYPE="int" LENGTH="10" NOTNULL="true" COMMENT="Start of the window (Unix timestamp)"/>
+        <FIELD NAME="messagecount" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" COMMENT="Message counter"/>
       </FIELDS>
       <KEYS>
         <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
@@ -40,6 +39,5 @@
         <INDEX NAME="userid_window" UNIQUE="true" FIELDS="userid, windowstart"/>
       </INDEXES>
     </TABLE>
-
   </TABLES>
 </XMLDB>

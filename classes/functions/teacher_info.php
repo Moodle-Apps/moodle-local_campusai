@@ -14,15 +14,89 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions;
+
 /**
+ * teacher_info function.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class teacher_info extends base_function {
+    /**
+     * Returns the identifier.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'teacher_info';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the human-readable description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_teacher_info_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'Who are the teachers in my course?',
+            'Show teacher contact details.',
+        ];
+    }
 
+    /**
+     * Returns the JSON schema parameters.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'courseid' => [
+                    'type' => 'integer',
+                    'description' => get_string('param_courseid', 'local_campusai'),
+                ],
+            ],
+            'required' => ['courseid'],
+        ];
+    }
 
- namespace local_campusai\functions; defined('MOODLE_INTERNAL') || die(); class teacher_info extends base_function { public function get_definition(): array { return [ 'name' => 'get_teacher_info', 'description' => 'Get the names and contact information of teachers/tutors for a specific course.', 'parameters' => [ 'type' => 'object', 'properties' => [ 'course_id' => [ 'type' => 'integer', 'description' => 'The course ID.', ], ], ], ]; } public function execute(array $arguments): array { global $DB; $courseid = (int)($arguments['course_id'] ?? 0); if ($courseid <= 0) { return ['error' => 'A valid course ID is required.']; } if (!$this->is_enrolled($courseid)) { return ['error' => 'You are not enrolled in this course.']; } $context = \context_course::instance($courseid); $teachingroles = [ get_config('moodle', 'teacherrole') ?: 3, get_config('moodle', 'editingteacherrole') ?: 2, ]; $teachers = []; foreach ($teachingroles as $roleid) { $roleusers = get_role_users($roleid, $context, false, 'u.id, u.firstname, u.lastname, u.email', 'lastname ASC'); foreach ($roleusers as $user) { $teachers[] = [ 'name' => fullname($user), 'email' => $user->email, 'role' => $roleid == 2 ? 'Teacher' : 'Tutor', ]; } } $seen = []; $unique = []; foreach ($teachers as $t) { if (!isset($seen[$t['name']])) { $seen[$t['name']] = true; $unique[] = $t; } } return ['teachers' => $unique]; } } 
+    /**
+     * Executes the function and returns a plain text result.
+     * @param int $userid
+     * @param array $args
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        $courseid = $args['courseid'];
+
+        if (!is_enrolled(\context_course::instance($courseid), $userid)) {
+            return get_string('error_no_course_access', 'local_campusai');
+        }
+
+        $context = \context_course::instance($courseid);
+        $teachers = get_enrolled_users($context, 'mod/assign:grade', 0, 'u.id, u.firstname, u.lastname, u.email');
+
+        if (empty($teachers)) {
+            return get_string('function_teacher_info_empty', 'local_campusai');
+        }
+
+        $lines = [];
+        foreach ($teachers as $teacher) {
+            $lines[] = '- **' . fullname($teacher) . '** — ' . $teacher->email;
+        }
+
+        return implode("\n", $lines);
+    }
+}

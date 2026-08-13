@@ -14,18 +14,126 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions\teacher;
 /**
+ * Ungraded submissions ordered by oldest first.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class ungraded_submissions extends base_teacher {
+    /**
+     * Returns the identifier.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'teacher_ungraded_submissions';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the human-readable description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_teacher_ungraded_submissions_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'Which submissions need grading?',
+            'Show ungraded work in my courses.',
+        ];
+    }
 
+    /**
+     * Returns the JSON schema parameters.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type'       => 'object',
+            'properties' => [
+                'courseid' => [
+                    'type'        => 'integer',
+                    'description' => get_string('function_teacher_ungraded_submissions_param_courseid', 'local_campusai'),
+                ],
+                'limit' => [
+                    'type'        => 'integer',
+                    'description' => get_string('function_teacher_ungraded_submissions_param_limit', 'local_campusai'),
+                    'default'     => 10,
+                ],
+            ],
+            'required'   => [],
+        ];
+    }
 
-namespace local_campusai\functions\teacher; defined('MOODLE_INTERNAL') || die(); class ungraded_submissions extends base_teacher { public function get_definition(): array { return [ 'name' => 'get_ungraded_submissions', 'description' => 'Get all ungraded student submissions grouped by course.', 'parameters' => [ 'type' => 'object', 'properties' => [ 'course_id' => ['type' => 'integer', 'description' => 'Optional course ID to filter.'], ], ], ]; } public function execute(array $arguments): array { global $DB; $courseid = $arguments['course_id'] ?? null; $courseids = $courseid ? (in_array($courseid, $this->get_teaching_course_ids()) ? [$courseid] : []) : $this->get_teaching_course_ids(); if (empty($courseids)) { return ['ungraded' => [], 'message' => 'No teaching courses found.']; } $result = []; foreach ($courseids as $cid) { $course = get_course($cid); $modinfo = get_fast_modinfo($cid, $this->userid); $assigns = $modinfo->get_instances_of('assign'); $courseungraded = []; foreach ($assigns as $cm) { if (!$cm->visible) continue; $sql = "SELECT s.userid, s.timemodified
-                          FROM {assign_submission} s
-                     LEFT JOIN {assign_grades} g ON s.assignment = g.assignment AND s.userid = g.userid
-                          WHERE s.assignment = ? AND s.status = 'submitted' AND g.id IS NULL"; $pending = $DB->get_records_sql($sql, [$cm->instance]); foreach ($pending as $p) { $user = \core_user::get_user($p->userid, 'firstname, lastname'); $courseungraded[] = [ 'assignment' => $cm->name, 'student' => $user ? trim($user->firstname . ' ' . $user->lastname) : 'Unknown', 'submitted' => $this->format_date($p->timemodified), ]; } } if (!empty($courseungraded)) { $result[] = [ 'course' => $course->fullname, 'count' => count($courseungraded), 'submissions' => $courseungraded, ]; } } return ['courses' => $result, 'total_ungraded' => array_sum(array_map(fn($c) => $c['count'], $result))]; } } 
+    /**
+     * Executes the function and returns a plain text result.
+     * @param int $userid
+     * @param array $args
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        global $DB;
+
+        $courseid = !empty($args['courseid']) ? (int) $args['courseid'] : 0;
+        $limit = !empty($args['limit']) ? (int) $args['limit'] : 10;
+
+        if ($courseid) {
+            $course = $DB->get_record('course', ['id' => $courseid]);
+            if (!$course || !has_capability('moodle/course:update', \context_course::instance($courseid), $userid)) {
+                return get_string('function_teacher_ungraded_submissions_not_teacher', 'local_campusai');
+            }
+            $courseids = [$courseid];
+        } else {
+            $courses = get_user_capability_course('moodle/course:update', $userid);
+            if (!$courses) {
+                return get_string('function_teacher_ungraded_submissions_no_teaching', 'local_campusai');
+            }
+            $courseids = array_map(function ($c) {
+                return (int) $c->id;
+            }, $courses);
+        }
+
+        [$insql, $inparams] = $DB->get_in_or_equal($courseids, SQL_PARAMS_NAMED, 'c');
+
+        $sql = "SELECT s.id, s.timemodified,
+                       u.firstname, u.lastname,
+                       a.name AS assignmentname, c.shortname
+                  FROM {assign_submission} s
+                  JOIN {assign} a ON a.id = s.assignment
+                  JOIN {course} c ON c.id = a.course
+                  JOIN {user} u ON u.id = s.userid
+                  LEFT JOIN {assign_grades} ag ON ag.assignment = s.assignment
+                       AND ag.userid = s.userid
+                       AND ag.attemptnumber = s.attemptnumber
+                 WHERE s.status = 'submitted'
+                   AND s.latest = 1
+                   AND a.course $insql
+                   AND (ag.id IS NULL OR ag.timemodified < s.timemodified)
+                 ORDER BY s.timemodified ASC";
+
+        $submissions = $DB->get_records_sql($sql, $inparams, 0, $limit);
+
+        if (!$submissions) {
+            return get_string('function_teacher_ungraded_submissions_empty', 'local_campusai');
+        }
+
+        $lines = [];
+        foreach ($submissions as $s) {
+            $date = \userdate($s->timemodified, '%d/%m/%Y');
+            $lines[] = "- {$s->firstname} {$s->lastname}: {$s->assignmentname} ({$s->shortname}, {$date})";
+        }
+
+        return implode("\n", $lines);
+    }
+}

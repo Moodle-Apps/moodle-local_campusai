@@ -14,15 +14,125 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions;
+
 /**
+ * search_content function.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class search_content extends base_function {
+    /**
+     * Returns the identifier.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'search_content';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the human-readable description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_search_content_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'Search for content in my courses.',
+            'Find pages about a topic.',
+        ];
+    }
 
+    /**
+     * Returns the JSON schema parameters.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'query' => [
+                    'type' => 'string',
+                    'description' => get_string('function_search_content_param_query', 'local_campusai'),
+                ],
+                'courseid' => [
+                    'type' => 'integer',
+                    'description' => get_string('function_search_content_param_courseid', 'local_campusai'),
+                ],
+            ],
+            'required' => ['query'],
+        ];
+    }
 
- namespace local_campusai\functions; defined('MOODLE_INTERNAL') || die(); class search_content extends base_function { public function get_definition(): array { return [ 'name' => 'search_course_content', 'description' => 'Search for text in activity names, resource titles, and section summaries across your courses.', 'parameters' => [ 'type' => 'object', 'properties' => [ 'query' => [ 'type' => 'string', 'description' => 'The search query.', ], 'course_id' => [ 'type' => 'integer', 'description' => 'Optional course ID to limit search scope.', ], ], 'required' => ['query'], ], ]; } public function execute(array $arguments): array { global $DB; $query = trim($arguments['query'] ?? ''); $courseid = $arguments['course_id'] ?? null; if (strlen($query) < 2) { return ['results' => [], 'message' => 'Query too short.']; } $courses = enrol_get_users_courses($this->userid); $courseids = array_keys($courses); if ($courseid) { $courseids = in_array($courseid, $courseids) ? [$courseid] : []; } if (empty($courseids)) { return ['results' => [], 'message' => 'No valid courses.']; } $results = []; $escaped = str_replace(['\%', '\_'], ['%', '_'], $query); foreach ($courseids as $cid) { $course = $courses[$cid]; $modinfo = get_fast_modinfo($cid, $this->userid); $cms = $modinfo->get_cms(); foreach ($cms as $cm) { if (!$cm->visible) { continue; } if (stripos($cm->name, $query) !== false) { $results[] = [ 'course' => $course->fullname, 'name' => $cm->name, 'type' => $cm->modname, 'section' => $cm->sectionnum, 'url' => (string)(new \moodle_url('/mod/' . $cm->modname . '/view.php', ['id' => $cm->id])), ]; } } $sections = $modinfo->get_section_info_all(); foreach ($sections as $section) { if (empty($section->summary)) { continue; } if (stripos(strip_tags($section->summary), $query) !== false) { $results[] = [ 'course' => $course->fullname, 'name' => 'Section: ' . ($section->name ?: ('Topic ' . $section->section)), 'type' => 'section', 'section' => $section->section, 'url' => (string)(new \moodle_url('/course/view.php', ['id' => $cid, 'section' => $section->section])), ]; } } } return ['results' => $results, 'count' => count($results)]; } } 
+    /**
+     * Executes the function and returns a plain text result.
+     * @param int $userid
+     * @param array $args
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        global $DB;
+
+        $query = trim($args['query']);
+        $courseid = $args['courseid'] ?? 0;
+
+        if (empty($query)) {
+            return get_string('function_search_content_missing_query', 'local_campusai');
+        }
+
+        if ($courseid && !is_enrolled(\context_course::instance($courseid), $userid)) {
+            return get_string('error_no_course_access', 'local_campusai');
+        }
+
+        if ($courseid) {
+            $courseids = [$courseid];
+        } else {
+            $courses = enrol_get_users_courses($userid, true, 'id');
+            $courseids = array_keys($courses);
+        }
+
+        if (empty($courseids)) {
+            return get_string('error_not_enrolled', 'local_campusai');
+        }
+
+        [$insql, $params] = $DB->get_in_or_equal($courseids, SQL_PARAMS_NAMED);
+        $params['query1'] = '%' . $DB->sql_like_escape($query) . '%';
+        $params['query2'] = '%' . $DB->sql_like_escape($query) . '%';
+        $likename = $DB->sql_like('p.name', ':query1', false);
+        $likecontent = $DB->sql_like('p.content', ':query2', false);
+
+        $sql = "SELECT p.id, p.name AS pagename, p.content, c.fullname
+                  FROM {page} p
+                  JOIN {course_modules} cm ON cm.instance = p.id AND cm.module = :pagemodule AND cm.course $insql
+                  JOIN {course} c ON c.id = cm.course
+                 WHERE ($likename OR $likecontent)
+              ORDER BY p.timemodified DESC";
+        $params['pagemodule'] = $DB->get_field('modules', 'id', ['name' => 'page']);
+
+        $records = $DB->get_records_sql($sql, $params, 0, 10);
+
+        if (empty($records)) {
+            return get_string('function_search_content_empty', 'local_campusai', (object) ['query' => $query]);
+        }
+
+        $lines = [];
+        foreach ($records as $r) {
+            $lines[] = '- **' . $r->pagename . '** (' . $r->fullname . '): ' .
+                shorten_text(strip_tags($r->content), 120);
+        }
+
+        return implode("\n", $lines);
+    }
+}

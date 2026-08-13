@@ -14,18 +14,162 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions\teacher;
 /**
+ * Students at risk in teacher courses.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class at_risk_students extends base_teacher {
+    /**
+     * Returns the identifier.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'teacher_at_risk_students';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the human-readable description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_teacher_at_risk_students_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'Which students are at risk?',
+            'Show struggling students in my courses.',
+        ];
+    }
 
+    /**
+     * Returns the JSON schema parameters.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type'       => 'object',
+            'properties' => [
+                'courseid' => [
+                    'type'        => 'integer',
+                    'description' => get_string('function_teacher_at_risk_students_param_courseid', 'local_campusai'),
+                ],
+            ],
+            'required'   => [],
+        ];
+    }
 
-namespace local_campusai\functions\teacher; defined('MOODLE_INTERNAL') || die(); class at_risk_students extends base_teacher { public function get_definition(): array { return [ 'name' => 'get_at_risk_students', 'description' => 'Get students at risk: low grades, low completion, or no recent access in a course.', 'parameters' => [ 'type' => 'object', 'properties' => [ 'course_id' => ['type' => 'integer', 'description' => 'The course ID.'], 'threshold' => ['type' => 'integer', 'description' => 'Risk threshold percentage (default 50).'], ], 'required' => ['course_id'], ], ]; } public function execute(array $arguments): array { global $DB; $courseid = (int)($arguments['course_id'] ?? 0); $threshold = (int)($arguments['threshold'] ?? 50); if (!$courseid || !$this->is_teacher_in_course($courseid)) { return ['error' => 'Invalid course or you are not a teacher in this course.']; } $course = get_course($courseid); $context = \context_course::instance($courseid); $students = get_role_users(5, $context, false, 'u.id, u.firstname, u.lastname', '', '', '', 500); if (empty($students)) { return ['at_risk' => [], 'message' => 'No students enrolled.']; } $completion = new \completion_info($course); $modinfo = get_fast_modinfo($courseid); $cms = $modinfo->get_cms(); $trackable = array_filter($cms, fn($cm) => $cm->completion); $at_risk = []; $now = time(); foreach ($students as $student) { $riskreasons = []; $lastaccess = $DB->get_field('user_lastaccess', 'timeaccess', ['userid' => $student->id, 'courseid' => $courseid]); if (!$lastaccess || ($now - $lastaccess) > (14 * DAYSECS)) { $days = $lastaccess ? round(($now - $lastaccess) / DAYSECS) : 0; $riskreasons[] = $days > 0 ? "No access in {$days} days" : 'Never accessed'; } if (!empty($trackable)) { $completed = 0; foreach ($trackable as $cm) { $data = $completion->get_data($cm, false, $student->id); if ($data->completionstate == COMPLETION_COMPLETE || $data->completionstate == COMPLETION_COMPLETE_PASS) { $completed++; } } $pct = round(($completed / count($trackable)) * 100); if ($pct < $threshold) { $riskreasons[] = "Completion: {$pct}%"; } } $gradequery = $DB->get_record_sql( "SELECT AVG(gg.finalgrade) AS avggrade, MAX(gi.grademax) AS grademax
-                   FROM {grade_grades} gg
-                   JOIN {grade_items} gi ON gg.itemid = gi.id
-                  WHERE gg.userid = ? AND gi.courseid = ? AND gg.finalgrade IS NOT NULL", [$student->id, $courseid] ); if ($gradequery && $gradequery->avggrade !== null && $gradequery->grademax > 0) { $gradepct = round(($gradequery->avggrade / $gradequery->grademax) * 100); if ($gradepct < $threshold) { $riskreasons[] = "Avg grade: {$gradepct}%"; } } if (!empty($riskreasons)) { $at_risk[] = [ 'name' => trim($student->firstname . ' ' . $student->lastname), 'reasons' => $riskreasons, ]; } } return ['at_risk_students' => $at_risk, 'count' => count($at_risk), 'threshold' => $threshold]; } } 
+    /**
+     * Executes the function and returns a plain text result.
+     * @param int $userid
+     * @param array $args
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        global $DB;
+
+        $courseid = !empty($args['courseid']) ? (int) $args['courseid'] : 0;
+
+        if ($courseid) {
+            $course = $DB->get_record('course', ['id' => $courseid]);
+            if (!$course || !has_capability('moodle/course:update', \context_course::instance($courseid), $userid)) {
+                return get_string('function_teacher_at_risk_students_not_teacher', 'local_campusai');
+            }
+            $courses = [$course];
+        } else {
+            $courses = get_user_capability_course('moodle/course:update', $userid);
+            if (!$courses) {
+                return get_string('function_teacher_at_risk_students_no_teaching', 'local_campusai');
+            }
+        }
+
+        $now   = time();
+        $lines = [];
+
+        foreach ($courses as $course) {
+            $context = \context_course::instance($course->id);
+            $students = get_enrolled_users($context, 'mod/assign:submit');
+            if (!$students) {
+                continue;
+            }
+
+            $userids = array_keys($students);
+            [$insql, $inparams] = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED, 'u');
+
+            $avggrade = $DB->get_records_sql(
+                "SELECT u.id,
+                        AVG(CASE WHEN gg.finalgrade IS NOT NULL AND gi.grademax > 0
+                                 THEN gg.finalgrade / gi.grademax * 100 END) AS avggrade
+                   FROM {user} u
+                   LEFT JOIN {grade_grades} gg ON gg.userid = u.id
+                   LEFT JOIN {grade_items} gi ON gi.id = gg.itemid
+                        AND gi.courseid = :courseid
+                        AND gi.itemtype != 'course'
+                  WHERE u.id $insql
+                  GROUP BY u.id",
+                array_merge(['courseid' => $course->id], $inparams)
+            );
+
+            $overdue = $DB->get_records_sql(
+                "SELECT u.id, COUNT(a.id) AS overdue
+                   FROM {user} u
+                   LEFT JOIN {assign} a ON a.course = :courseid
+                        AND a.duedate > 0
+                        AND a.duedate < :now
+                   LEFT JOIN {assign_submission} sub ON sub.assignment = a.id
+                        AND sub.userid = u.id
+                        AND sub.status = 'submitted'
+                  WHERE u.id $insql
+                        AND a.id IS NOT NULL
+                        AND sub.id IS NULL
+                  GROUP BY u.id",
+                array_merge(['courseid' => $course->id, 'now' => $now], $inparams)
+            );
+
+            foreach ($students as $uid => $student) {
+                $avg = isset($avggrade[$uid]) && $avggrade[$uid]->avggrade !== null
+                    ? (float) $avggrade[$uid]->avggrade
+                    : null;
+                $late = isset($overdue[$uid]) ? (int) $overdue[$uid]->overdue : 0;
+
+                $risk = false;
+                if ($avg !== null && $avg < 50.0) {
+                    $risk = true;
+                }
+                if ($late >= 2) {
+                    $risk = true;
+                }
+
+                if (!$risk) {
+                    continue;
+                }
+
+                $gradetext = $avg !== null ? round($avg, 1) . '%' : get_string('status_no_grades', 'local_campusai');
+                $lines[] = get_string('function_teacher_at_risk_students_item', 'local_campusai', (object) [
+                    'name' => $student->firstname . ' ' . $student->lastname,
+                    'shortname' => $course->shortname,
+                    'grade' => $gradetext,
+                    'late' => $late,
+                ]);
+            }
+        }
+
+        if (empty($lines)) {
+            return get_string('function_teacher_at_risk_students_empty', 'local_campusai');
+        }
+
+        return implode("\n", $lines);
+    }
+}

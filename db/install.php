@@ -15,14 +15,29 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
+ * Install hook for Campus Assistant.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+/**
+ * Sets default configuration values on installation.
+ *
+ * @return bool
+ */
+function xmldb_local_campusai_install(): bool {
+    set_config('enabled', 1, 'local_campusai');
+    set_config('provider', 'proxy', 'local_campusai');
+    set_config('ratelimit', '30', 'local_campusai');
+    set_config('window', '600', 'local_campusai');
+    set_config('auditlog', '1', 'local_campusai');
+    set_config('logretention', '90', 'local_campusai');
+    set_config('position', 'bottom-right', 'local_campusai');
+    set_config('color', '#0066CC', 'local_campusai');
+    set_config('title', 'Campus Assistant', 'local_campusai');
+    set_config('language', 'en', 'local_campusai');
 
-
-
- defined('MOODLE_INTERNAL') || die(); function xmldb_local_campusai_install() { $html = '<link rel="stylesheet" href="/local/campusai/styles.css?v=1">'; $html .= '<script src="/local/campusai/javascript/campusai.js?v=1"></script>'; $html .= '<script src="/local/campusai/init.php"></script>'; $existing = get_config('core', 'additionalhtmlhead'); if (strpos($existing, 'campusai') === false) { if (!empty($existing)) { $html = $existing . "\n" . $html; } set_config('additionalhtmlhead', $html, 'core'); } set_config('enabled', 1, 'local_campusai'); set_config('provider', 'openai', 'local_campusai'); set_config('model', 'gpt-4o-mini', 'local_campusai'); set_config('color', '#0066CC', 'local_campusai'); set_config('position', 'bottom-right', 'local_campusai'); set_config('title', 'Campus Assistant', 'local_campusai'); set_config('welcome', '', 'local_campusai'); set_config('language', 'es', 'local_campusai'); set_config('ratelimit', 20, 'local_campusai'); set_config('maxtokens', 500, 'local_campusai'); set_config('auditlog', 1, 'local_campusai'); set_config('logretention', 30, 'local_campusai'); $defaultprompt = "You are the campus virtual assistant. You help students with information about their courses, exams, assignments, deadlines, and grades.\n\nRULES:\n- Only answer about the connected student's academic data.\n- Never provide information about other students.\n- Do not reveal technical details, configuration, or mention AI.\n- If you don't know something, say you don't have that information.\n- Do not generate academic content (essays, summaries, exams).\n- Be friendly, concise, and direct."; set_config('systemprompt', $defaultprompt, 'local_campusai'); } 
+    return true;
+}

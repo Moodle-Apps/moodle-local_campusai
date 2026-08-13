@@ -14,15 +14,101 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions\teacher;
 /**
+ * List of students in a teacher course.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class student_list extends base_teacher {
+    /**
+     * Returns the identifier.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'teacher_student_list';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the human-readable description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_teacher_student_list_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'Who are the students in my course?',
+            'Show enrolled students.',
+        ];
+    }
 
+    /**
+     * Returns the JSON schema parameters.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type'       => 'object',
+            'properties' => [
+                'courseid' => [
+                    'type'        => 'integer',
+                    'description' => get_string('function_teacher_student_list_param_courseid', 'local_campusai'),
+                ],
+            ],
+            'required'   => ['courseid'],
+        ];
+    }
 
-namespace local_campusai\functions\teacher; defined('MOODLE_INTERNAL') || die(); class student_list extends base_teacher { public function get_definition(): array { return [ 'name' => 'get_student_list', 'description' => 'Get the list of students enrolled in a course with their last access time.', 'parameters' => [ 'type' => 'object', 'properties' => [ 'course_id' => ['type' => 'integer', 'description' => 'The course ID.'], ], 'required' => ['course_id'], ], ]; } public function execute(array $arguments): array { global $DB; $courseid = (int)($arguments['course_id'] ?? 0); if (!$courseid || !$this->is_teacher_in_course($courseid)) { return ['error' => 'Invalid course or you are not a teacher in this course.']; } $course = get_course($courseid); $context = \context_course::instance($courseid); $students = get_role_users(5, $context, false, 'u.id, u.firstname, u.lastname, u.email', 'u.lastname ASC', '', '', 500); if (empty($students)) { return ['students' => [], 'message' => 'No students enrolled.']; } $now = time(); $result = []; foreach ($students as $student) { $lastaccess = $DB->get_field('user_lastaccess', 'timeaccess', ['userid' => $student->id, 'courseid' => $courseid]); $accessstr = 'Never'; $daysago = null; if ($lastaccess) { $daysago = round(($now - $lastaccess) / DAYSECS); $accessstr = $daysago == 0 ? 'Today' : ($daysago == 1 ? 'Yesterday' : "{$daysago} days ago"); } $result[] = [ 'name' => trim($student->firstname . ' ' . $student->lastname), 'last_access' => $accessstr, 'days_inactive' => $daysago, ]; } return ['course' => $course->fullname, 'students' => $result, 'count' => count($result)]; } } 
+    /**
+     * Executes the function and returns a plain text result.
+     * @param int $userid
+     * @param array $args
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        global $DB;
+
+        $courseid = !empty($args['courseid']) ? (int) $args['courseid'] : 0;
+        if (!$courseid) {
+            return get_string('function_teacher_student_list_missing_courseid', 'local_campusai');
+        }
+
+        $course = $DB->get_record('course', ['id' => $courseid]);
+        if (!$course || !has_capability('moodle/course:update', \context_course::instance($courseid), $userid)) {
+            return get_string('function_teacher_student_list_not_teacher', 'local_campusai');
+        }
+
+        $context = \context_course::instance($courseid);
+        $students = get_enrolled_users($context, 'mod/assign:submit');
+
+        if (!$students) {
+            return get_string('function_teacher_student_list_no_students', 'local_campusai');
+        }
+
+        $lines = [];
+        foreach ($students as $student) {
+            $lines[] = "- {$student->firstname} {$student->lastname} ({$student->email})";
+        }
+
+        if (count($lines) > 30) {
+            $total = count($lines);
+            $lines = array_slice($lines, 0, 30);
+            $remaining = $total - 30;
+            $lines[] = get_string('function_teacher_student_list_more', 'local_campusai', (object) ['remaining' => $remaining]);
+        }
+
+        return implode("\n", $lines);
+    }
+}

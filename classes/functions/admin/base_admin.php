@@ -14,15 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions\admin;
+
+use local_campusai\functions\base_function;
+
 /**
+ * Abstract base class for administrator functions.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
-
-
-
-namespace local_campusai\functions\admin; abstract class base_admin { protected $userid; public function __construct(int $userid) { $this->userid = $userid; } abstract public function get_definition(): array; abstract public function execute(array $arguments): array; protected function format_date(int $timestamp): string { return date('j M Y', $timestamp); } } 
+abstract class base_admin extends base_function {
+}

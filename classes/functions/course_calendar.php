@@ -14,15 +14,113 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions;
+
 /**
+ * course_calendar function.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class course_calendar extends base_function {
+    /**
+     * Returns the identifier.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'course_calendar';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the human-readable description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_course_calendar_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'What events are coming up in my course?',
+            'Show my course calendar.',
+        ];
+    }
 
+    /**
+     * Returns the JSON schema parameters.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'courseid' => [
+                    'type' => 'integer',
+                    'description' => get_string('param_courseid', 'local_campusai'),
+                ],
+                'days' => [
+                    'type' => 'integer',
+                    'description' => get_string('function_course_calendar_param_days', 'local_campusai'),
+                    'default' => 30,
+                ],
+            ],
+        ];
+    }
 
- namespace local_campusai\functions; defined('MOODLE_INTERNAL') || die(); class course_calendar extends base_function { public function get_definition(): array { return [ 'name' => 'get_course_calendar', 'description' => 'Get upcoming calendar events (exams, workshops, activities) for the next 14 days across all enrolled courses.', 'parameters' => [ 'type' => 'object', 'properties' => new \stdClass(), ], ]; } public function execute(array $arguments): array { global $DB; $now = time(); $future = $now + (14 * DAYSECS); $courses = enrol_get_users_courses($this->userid); $courseids = array_keys($courses); if (empty($courseids)) { return ['events' => [], 'message' => 'You are not enrolled in any courses.']; } list($insql, $inparams) = $DB->get_in_or_equal($courseids); $params = array_merge([$now, $future], $inparams); $events = $DB->get_records_select( 'event', "timestart >= ? AND timestart <= ? AND (courseid $insql OR (courseid = 1 AND userid = 0))", $params, 'timestart ASC', 'id, name, timestart, timeduration, courseid, eventtype, description', 0, 30 ); $result = []; foreach ($events as $event) { $coursename = $courses[$event->courseid]->fullname ?? 'General'; $result[] = [ 'name' => $event->name, 'course' => $coursename, 'date' => $this->format_date($event->timestart), 'type' => $event->eventtype, 'timestamp' => $event->timestart, ]; } return ['events' => $result]; } } 
+    /**
+     * Executes the function and returns a plain text result.
+     * @param int $userid
+     * @param array $args
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        global $DB;
+
+        $courseid = $args['courseid'] ?? 0;
+        $days = $args['days'] ?? 30;
+
+        if ($courseid && !is_enrolled(\context_course::instance($courseid), $userid)) {
+            return get_string('error_no_course_access', 'local_campusai');
+        }
+
+        $now = time();
+        $end = $now + ($days * DAYSECS);
+
+        $params = ['now' => $now, 'end' => $end];
+        $coursewhere = '';
+        if ($courseid) {
+            $coursewhere = 'AND e.courseid = :courseid';
+            $params['courseid'] = $courseid;
+        }
+
+        $sql = "SELECT e.id, e.name, e.timestart, e.timeduration, e.courseid, e.description
+                  FROM {event} e
+                 WHERE e.timestart >= :now AND e.timestart <= :end
+                   AND e.userid = 0 AND e.groupid = 0 AND e.courseid <> 0
+                   $coursewhere
+              ORDER BY e.timestart ASC";
+
+        $records = $DB->get_records_sql($sql, $params, 0, 20);
+
+        if (empty($records)) {
+            return get_string('function_course_calendar_empty', 'local_campusai');
+        }
+
+        $lines = [];
+        foreach ($records as $r) {
+            $date = userdate($r->timestart, get_string('strftimedate', 'langconfig'));
+            $lines[] = '- **' . strip_tags($r->name) . '** — ' . $date;
+        }
+
+        return implode("\n", $lines);
+    }
+}

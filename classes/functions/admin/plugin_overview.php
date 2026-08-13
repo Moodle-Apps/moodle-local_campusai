@@ -14,15 +14,77 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions\admin;
+
 /**
+ * Plugin overview function.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class plugin_overview extends base_admin {
+    /**
+     * Returns the function name.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'admin_plugin_overview';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the function description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_admin_plugin_overview_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions for the widget.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'What version of the plugin is installed?',
+            'Show plugin information.',
+        ];
+    }
 
+    /**
+     * Returns the function parameters schema.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type' => 'object',
+            'properties' => (object) [],
+            'required' => [],
+        ];
+    }
 
-namespace local_campusai\functions\admin; defined('MOODLE_INTERNAL') || die(); class plugin_overview extends base_admin { public function get_definition(): array { return [ 'name' => 'get_plugin_overview', 'description' => 'Get installed plugins with their versions and status.', 'parameters' => ['type' => 'object', 'properties' => new \stdClass()], ]; } public function execute(array $arguments): array { global $CFG; $pluginman = \core_plugin_manager::instance(); $types = $pluginman->get_plugin_types(); $result = []; foreach ($types as $type => $typename) { $plugins = $pluginman->get_plugins_of_type($type); foreach ($plugins as $plugin) { if ($plugin->versiondb === null) { continue; } $status = 'ok'; if ($plugin->versiondb != $plugin->versiondisk) { $status = 'version_mismatch'; } elseif ($plugin->is_enabled() === false) { $status = 'disabled'; } $result[] = [ 'name' => $plugin->displayname, 'type' => $type, 'version' => $plugin->versiondb, 'status' => $status, 'requires' => $plugin->versiondisk, ]; } } usort($result, function($a, $b) { if ($a['status'] !== 'ok' && $b['status'] === 'ok') return -1; if ($a['status'] === 'ok' && $b['status'] !== 'ok') return 1; return strcmp($a['name'], $b['name']); }); $problems = array_filter($result, fn($p) => $p['status'] !== 'ok'); return [ 'total_plugins' => count($result), 'problems' => count($problems), 'plugins' => array_slice($result, 0, 50), ]; } } 
+    /**
+     * Executes the function.
+     *
+     * @param int $userid User ID.
+     * @param array $args Arguments from the LLM.
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+
+        if (!has_capability('local/campusai:manage', \context_system::instance(), $userid)) {
+            return get_string('function_admin_plugin_overview_permission', 'local_campusai');
+        }
+
+        $version = get_config('local_campusai', 'version');
+        if (empty($version)) {
+            $version = get_string('function_admin_plugin_overview_unknown', 'local_campusai');
+        }
+
+        return get_string('function_admin_plugin_overview_result', 'local_campusai', (object) ['version' => $version]);
+    }
+}

@@ -14,15 +14,83 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions\admin;
+
 /**
+ * Global campus statistics function.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class campus_stats extends base_admin {
+    /**
+     * Returns the function name.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'admin_campus_stats';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the function description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_admin_campus_stats_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions for the widget.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'How many users are on the platform?',
+            'Show me campus-wide statistics.',
+        ];
+    }
 
+    /**
+     * Returns the function parameters schema.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type' => 'object',
+            'properties' => (object) [],
+            'required' => [],
+        ];
+    }
 
-namespace local_campusai\functions\admin; class campus_stats extends base_admin { public function get_definition(): array { return [ 'name' => 'get_campus_stats', 'description' => 'Get overall campus statistics: total courses, active students, teachers, and enrollments.', 'parameters' => ['type' => 'object', 'properties' => new \stdClass()], ]; } public function execute(array $arguments): array { global $DB; $totalcourses = $DB->count_records('course', ['category' => 0]) + $DB->count_records_select('course', 'category > 0'); $totalcourses--; $activestudents = $DB->count_records_select('role_assignments', "roleid = 5"); $totalteachers = $DB->count_records_select('role_assignments', "roleid IN (2,3,4)"); $totalenrolments = $DB->count_records('user_enrolments', []); $activeusers7 = $DB->count_records_select('user', "lastlogin > ? AND deleted = 0 AND suspended = 0", [time() - (7 * DAYSECS)]); return [ 'total_courses' => (int)$totalcourses, 'active_students' => (int)$activestudents, 'teachers' => (int)$totalteachers, 'total_enrollments' => (int)$totalenrolments, 'users_logged_in_7days' => (int)$activeusers7, ]; } } 
+    /**
+     * Executes the function.
+     *
+     * @param int $userid User ID.
+     * @param array $args Arguments from the LLM.
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        global $DB;
+
+        if (!has_capability('local/campusai:manage', \context_system::instance(), $userid)) {
+            return get_string('function_admin_campus_stats_permission', 'local_campusai');
+        }
+
+        $users = $DB->count_records('user', ['deleted' => 0]);
+        $courses = $DB->count_records('course', ['visible' => 1]);
+        $categories = $DB->count_records('course_categories', ['visible' => 1]);
+        $enrolments = $DB->count_records('user_enrolments', []);
+
+        return get_string('function_admin_campus_stats_result', 'local_campusai', (object) [
+            'users' => $users,
+            'courses' => $courses,
+            'categories' => $categories,
+            'enrolments' => $enrolments,
+        ]);
+    }
+}

@@ -14,24 +14,163 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions\admin;
+
 /**
+ * Login statistics function.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class login_stats extends base_admin {
+    /**
+     * Returns the function name.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'admin_login_stats';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the function description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_admin_login_stats_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions for the widget.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'What are the login statistics?',
+            'Show daily login counts.',
+        ];
+    }
 
+    /**
+     * Returns the function parameters schema.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'period' => [
+                    'type' => 'string',
+                    'enum' => ['daily', 'weekly', 'monthly'],
+                    'description' => get_string('function_admin_login_stats_param_period', 'local_campusai'),
+                    'default' => 'daily',
+                ],
+                'limit' => [
+                    'type' => 'integer',
+                    'description' => get_string('function_admin_login_stats_param_limit', 'local_campusai'),
+                    'default' => 7,
+                ],
+            ],
+            'required' => [],
+        ];
+    }
 
-namespace local_campusai\functions\admin; defined('MOODLE_INTERNAL') || die(); class login_stats extends base_admin { public function get_definition(): array { return [ 'name' => 'get_login_stats', 'description' => 'Get daily login statistics and peak concurrency for recent days.', 'parameters' => [ 'type' => 'object', 'properties' => [ 'days' => ['type' => 'integer', 'description' => 'Number of days to analyze (default 7).'], ], ], ]; } public function execute(array $arguments): array { global $DB; $days = (int)($arguments['days'] ?? 7); $cutoff = time() - ($days * DAYSECS); $sql = "SELECT FROM_UNIXTIME(timecreated, '%Y-%m-%d') AS day,
-                       COUNT(*) AS total_logins,
-                       COUNT(DISTINCT userid) AS unique_users
+    /**
+     * Executes the function.
+     *
+     * @param int $userid User ID.
+     * @param array $args Arguments from the LLM.
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        global $DB;
+
+        if (!has_capability('local/campusai:manage', \context_system::instance(), $userid)) {
+            return get_string('function_admin_login_stats_permission', 'local_campusai');
+        }
+
+        $period = isset($args['period']) ? strtolower($args['period']) : 'daily';
+        if (!in_array($period, ['daily', 'weekly', 'monthly'])) {
+            $period = 'daily';
+        }
+        $limit = isset($args['limit']) ? (int) $args['limit'] : 7;
+        $limit = min(max($limit, 1), 90);
+
+        switch ($period) {
+            case 'weekly':
+                $label = get_string('function_admin_login_stats_label_week', 'local_campusai');
+                $threshold = strtotime("-{$limit} weeks");
+                break;
+            case 'monthly':
+                $label = get_string('function_admin_login_stats_label_month', 'local_campusai');
+                $threshold = strtotime("-{$limit} months");
+                break;
+            case 'daily':
+            default:
+                $label = get_string('function_admin_login_stats_label_day', 'local_campusai');
+                $threshold = strtotime("-{$limit} days");
+                break;
+        }
+
+        $sql = "SELECT id, timecreated, userid
                   FROM {logstore_standard_log}
-                 WHERE eventname LIKE '%login%' AND timecreated >= ?
-              GROUP BY day ORDER BY day ASC"; $daily = $DB->get_records_sql($sql, [$cutoff]); $trend = []; $totallogins = 0; $totalunique = 0; foreach ($daily as $day) { $trend[] = [ 'date' => $day->day, 'logins' => (int)$day->total_logins, 'unique_users' => (int)$day->unique_users, ]; $totallogins += $day->total_logins; $totalunique = max($totalunique, (int)$day->unique_users); } $sql = "SELECT FROM_UNIXTIME(timecreated, '%H') AS hour,
-                       COUNT(DISTINCT userid) AS users
-                  FROM {logstore_standard_log}
-                 WHERE eventname LIKE '%login%' AND timecreated >= ?
-              GROUP BY hour ORDER BY users DESC LIMIT 5"; $peaks = $DB->get_records_sql($sql, [$cutoff]); $peakhours = []; foreach ($peaks as $peak) { $peakhours[] = ['hour' => $peak->hour . ':00', 'unique_users' => (int)$peak->users]; } return [ 'period_days' => $days, 'total_logins' => (int)$totallogins, 'peak_unique_users_day' => $totalunique, 'daily_trend' => $trend, 'peak_hours' => $peakhours, ]; } } 
+                 WHERE action = 'loggedin'
+                   AND timecreated > :threshold
+              ORDER BY timecreated DESC";
+
+        $records = $DB->get_records_sql($sql, ['threshold' => $threshold]);
+
+        if (empty($records)) {
+            return get_string('function_admin_login_stats_empty', 'local_campusai');
+        }
+
+        $grouped = [];
+        foreach ($records as $record) {
+            $timestamp = (int) $record->timecreated;
+            switch ($period) {
+                case 'weekly':
+                    $key = date('Y-W', $timestamp);
+                    break;
+                case 'monthly':
+                    $key = date('Y-m', $timestamp);
+                    break;
+                case 'daily':
+                default:
+                    $key = date('Y-m-d', $timestamp);
+                    break;
+            }
+
+            if (!isset($grouped[$key])) {
+                $grouped[$key] = [
+                    'total' => 0,
+                    'users' => [],
+                ];
+            }
+            $grouped[$key]['total']++;
+            $grouped[$key]['users'][(int) $record->userid] = true;
+        }
+
+        $lines = [];
+        $count = 0;
+        foreach ($grouped as $key => $data) {
+            if ($count >= $limit) {
+                break;
+            }
+            $unique = count($data['users']);
+            $total = $data['total'];
+            $lines[] = get_string('function_admin_login_stats_item', 'local_campusai', (object) [
+                'label' => $label,
+                'key' => $key,
+                'total' => $total,
+                'unique' => $unique,
+            ]);
+            $count++;
+        }
+
+        return implode("\n", $lines);
+    }
+}

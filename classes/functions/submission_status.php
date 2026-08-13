@@ -14,15 +14,110 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions;
+
 /**
+ * submission_status function.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class submission_status extends base_function {
+    /**
+     * Returns the identifier.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'submission_status';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the human-readable description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_submission_status_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'What is the status of my assignment?',
+            'Did I submit my assignment?',
+        ];
+    }
 
+    /**
+     * Returns the JSON schema parameters.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'assignmentid' => [
+                    'type' => 'integer',
+                    'description' => get_string('function_submission_status_param_assignmentid', 'local_campusai'),
+                ],
+            ],
+            'required' => ['assignmentid'],
+        ];
+    }
 
- namespace local_campusai\functions; defined('MOODLE_INTERNAL') || die(); class submission_status extends base_function { public function get_definition(): array { return [ 'name' => 'get_submission_status', 'description' => 'Check if the student has submitted a specific assignment and its status.', 'parameters' => [ 'type' => 'object', 'properties' => [ 'assignment_name' => [ 'type' => 'string', 'description' => 'The name of the assignment to check (partial match).', ], ], 'required' => ['assignment_name'], ], ]; } public function execute(array $arguments): array { global $DB; $search = trim($arguments['assignment_name'] ?? ''); if (empty($search)) { return ['error' => 'Assignment name is required.']; } $courses = enrol_get_users_courses($this->userid); $results = []; foreach ($courses as $course) { $modinfo = get_fast_modinfo($course->id, $this->userid); foreach ($modinfo->get_instances_of('assign') as $cm) { if (!$cm->uservisible) { continue; } if (stripos($cm->name, $search) === false) { continue; } $assign = $DB->get_record('assign', ['id' => $cm->instance], '*', MUST_EXIST); $submission = $DB->get_record('assign_submission', [ 'assignment' => $assign->id, 'userid' => $this->userid, ]); $status = 'not_started'; if ($submission) { $status = $submission->status; } $results[] = [ 'course' => $course->fullname, 'assignment' => $assign->name, 'status' => $status, 'deadline' => $assign->duedate > 0 ? $this->format_date($assign->duedate) : 'No deadline', 'submitted' => $status === 'submitted', ]; } } return ['submissions' => $results]; } } 
+    /**
+     * Executes the function and returns a plain text result.
+     * @param int $userid
+     * @param array $args
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        global $DB;
+
+        $assignmentid = $args['assignmentid'];
+
+        $assign = $DB->get_record('assign', ['id' => $assignmentid], '*', MUST_EXIST);
+
+        if (!is_enrolled(\context_course::instance($assign->course), $userid)) {
+            return get_string('error_no_course_access', 'local_campusai');
+        }
+
+        $submission = $DB->get_record('assign_submission', [
+            'assignment' => $assignmentid,
+            'userid' => $userid,
+        ]);
+
+        $status = $submission ? $submission->status : get_string('function_submission_status_no_submission', 'local_campusai');
+        if ($assign->duedate) {
+            $duedate = userdate($assign->duedate, get_string('strftimedatetime', 'langconfig'));
+        } else {
+            $duedate = get_string('status_no_due_date', 'local_campusai');
+        }
+
+        $grade = $DB->get_record('assign_grades', [
+            'assignment' => $assignmentid,
+            'userid' => $userid,
+        ]);
+
+        $result = get_string('function_submission_status_result', 'local_campusai', (object) [
+            'status' => $status,
+            'duedate' => $duedate,
+        ]);
+        if ($grade && $grade->grade !== null) {
+            $result .= get_string(
+                'function_submission_status_grade',
+                'local_campusai',
+                (object) ['grade' => round($grade->grade, 2)]
+            );
+        }
+
+        return $result;
+    }
+}

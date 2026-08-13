@@ -14,15 +14,124 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions\teacher;
 /**
+ * Average class progress.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class class_progress extends base_teacher {
+    /**
+     * Returns the identifier.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'teacher_class_progress';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the human-readable description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_teacher_class_progress_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'What is the average progress of my class?',
+            'Show class completion percentage.',
+        ];
+    }
 
+    /**
+     * Returns the JSON schema parameters.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type'       => 'object',
+            'properties' => [
+                'courseid' => [
+                    'type'        => 'integer',
+                    'description' => get_string('function_teacher_class_progress_param_courseid', 'local_campusai'),
+                ],
+            ],
+            'required'   => ['courseid'],
+        ];
+    }
 
-namespace local_campusai\functions\teacher; defined('MOODLE_INTERNAL') || die(); class class_progress extends base_teacher { public function get_definition(): array { return [ 'name' => 'get_class_progress', 'description' => 'Get the average completion progress of all students in a course.', 'parameters' => [ 'type' => 'object', 'properties' => [ 'course_id' => ['type' => 'integer', 'description' => 'The course ID.'], ], 'required' => ['course_id'], ], ]; } public function execute(array $arguments): array { global $DB; $courseid = (int)($arguments['course_id'] ?? 0); if (!$courseid || !$this->is_teacher_in_course($courseid)) { return ['error' => 'Invalid course or you are not a teacher in this course.']; } $course = get_course($courseid); $completion = new \completion_info($course); if (!$completion->is_enabled()) { return ['course' => $course->fullname, 'message' => 'Completion tracking is not enabled for this course.']; } $context = \context_course::instance($courseid); $students = get_role_users(5, $context, false, 'u.id', '', '', '', 500); if (empty($students)) { return ['course' => $course->fullname, 'average_progress' => 0, 'message' => 'No students enrolled.']; } $modinfo = get_fast_modinfo($courseid); $cms = $modinfo->get_cms(); $trackable = []; foreach ($cms as $cm) { if ($cm->completion) { $trackable[] = $cm; } } if (empty($trackable)) { return ['course' => $course->fullname, 'average_progress' => 0, 'message' => 'No trackable activities.']; } $totalcompletion = 0; $perstudent = []; foreach ($students as $student) { $completed = 0; foreach ($trackable as $cm) { $data = $completion->get_data($cm, false, $student->id); if ($data->completionstate == COMPLETION_COMPLETE || $data->completionstate == COMPLETION_COMPLETE_PASS) { $completed++; } } $pct = round(($completed / count($trackable)) * 100); $perstudent[] = $pct; $totalcompletion += $pct; } $avg = round($totalcompletion / count($students)); return [ 'course' => $course->fullname, 'student_count' => count($students), 'trackable_activities' => count($trackable), 'average_progress' => $avg, 'distribution' => [ 'above_75' => count(array_filter($perstudent, fn($p) => $p >= 75)), '50_to_75' => count(array_filter($perstudent, fn($p) => $p >= 50 && $p < 75)), '25_to_50' => count(array_filter($perstudent, fn($p) => $p >= 25 && $p < 50)), 'below_25' => count(array_filter($perstudent, fn($p) => $p < 25)), ], ]; } } 
+    /**
+     * Executes the function and returns a plain text result.
+     * @param int $userid
+     * @param array $args
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        global $DB;
+
+        $courseid = !empty($args['courseid']) ? (int) $args['courseid'] : 0;
+        if (!$courseid) {
+            return get_string('function_teacher_class_progress_missing_courseid', 'local_campusai');
+        }
+
+        $course = $DB->get_record('course', ['id' => $courseid]);
+        if (!$course || !has_capability('moodle/course:update', \context_course::instance($courseid), $userid)) {
+            return get_string('function_teacher_class_progress_not_teacher', 'local_campusai');
+        }
+
+        $totalmodules = $DB->count_records('course_modules', [
+            'course'            => $courseid,
+            'visible'           => 1,
+            'deletioninprogress' => 0,
+        ]);
+
+        if (!$totalmodules) {
+            return get_string('function_teacher_class_progress_no_activities', 'local_campusai');
+        }
+
+        $context = \context_course::instance($courseid);
+        $students = get_enrolled_users($context, 'mod/assign:submit');
+        if (!$students) {
+            return get_string('function_teacher_class_progress_no_students', 'local_campusai');
+        }
+
+        $userids = array_keys($students);
+        [$insql, $inparams] = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED, 'u');
+
+        $completed = $DB->get_records_sql(
+            "SELECT cmc.userid, COUNT(cmc.id) AS completed
+               FROM {course_modules_completion} cmc
+               JOIN {course_modules} cm ON cm.id = cmc.coursemoduleid
+              WHERE cm.course = :courseid
+                AND cm.visible = 1
+                AND cmc.completionstate IN (1, 2)
+                AND cmc.userid $insql
+              GROUP BY cmc.userid",
+            array_merge(['courseid' => $courseid], $inparams)
+        );
+
+        $sum = 0.0;
+        foreach ($students as $uid => $student) {
+            $done = isset($completed[$uid]) ? (int) $completed[$uid]->completed : 0;
+            $sum += $done / $totalmodules;
+        }
+
+        $average = round($sum / count($students) * 100);
+
+        return get_string('function_teacher_class_progress_result', 'local_campusai', (object) [
+            'average' => $average,
+            'totalmodules' => $totalmodules,
+        ]);
+    }
+}

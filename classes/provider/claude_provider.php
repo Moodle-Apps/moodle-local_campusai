@@ -14,15 +14,113 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\provider;
+
 /**
+ * Anthropic Claude API provider.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class claude_provider implements provider_interface {
+    /** @var string API key. */
+    private string $apikey;
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /** @var string Unused for Claude. */
+    private string $jwtsecret;
 
+    /**
+     * Constructor.
+     *
+     * @param string $apikey
+     * @param string $jwtsecret
+     */
+    public function __construct(string $apikey, string $jwtsecret) {
+        $this->apikey = $apikey;
+        $this->jwtsecret = $jwtsecret;
+    }
 
+    /**
+     * Returns the identifier.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'claude';
+    }
 
-namespace local_campusai\provider; use moodle_exception; class claude_provider implements provider_interface { protected $apikey; protected $model; public function __construct(string $apikey, string $model) { $this->apikey = $apikey; $this->model = $model; } protected function build_tools(array $functions): array { $tools = []; foreach ($functions as $fn) { $tools[] = ['name' => $fn['name'], 'description' => $fn['description'], 'input_schema' => $fn['parameters'] ?? ['type' => 'object', 'properties' => new \stdClass()]]; } return $tools; } protected function request(array $messages, array $tools, string $systemprompt, int $maxtokens): array { $url = 'https://api.anthropic.com/v1/messages'; $payload = ['model' => $this->model, 'max_tokens' => $maxtokens, 'temperature' => 0.3, 'messages' => $messages]; if (!empty($systemprompt)) $payload['system'] = $systemprompt; if (!empty($tools)) $payload['tools'] = $tools; $ch = curl_init($url); curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_POST => true, CURLOPT_POSTFIELDS => json_encode($payload), CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'x-api-key: ' . $this->apikey, 'anthropic-version: 2023-06-01'], CURLOPT_TIMEOUT => 30, CURLOPT_CONNECTTIMEOUT => 10, CURLOPT_SSL_VERIFYPEER => true]); $response = curl_exec($ch); $error = curl_error($ch); curl_close($ch); if ($error) throw new moodle_exception('error_provider', 'local_campusai', '', null, 'Claude: ' . $error); $data = json_decode($response, true); if (isset($data['error'])) throw new moodle_exception('error_provider', 'local_campusai', '', null, 'Claude: ' . ($data['error']['message'] ?? 'unknown')); return $data; } protected function normalise_response(array $data): array { $tokens = ($data['usage']['input_tokens'] ?? 0) + ($data['usage']['output_tokens'] ?? 0); $blocks = $data['content'] ?? []; foreach ($blocks as $block) { if ($block['type'] === 'tool_use') return ['type' => 'function_call', 'name' => $block['name'], 'arguments' => $block['input'] ?? [], 'id' => $block['id'] ?? '', 'tokens' => $tokens]; } $text = ''; foreach ($blocks as $block) if ($block['type'] === 'text') $text .= $block['text']; return ['type' => 'text', 'content' => $text, 'tokens' => $tokens]; } public function chat(array $messages, array $functions, string $systemprompt, int $maxtokens): array { $clean = array_filter($messages, fn($m) => $m['role'] !== 'system'); $data = $this->request(array_values($clean), $this->build_tools($functions), $systemprompt, $maxtokens); return $this->normalise_response($data); } public function continue_with_result(array $messages, array $functions, string $systemprompt, int $maxtokens): array { $clean = array_filter($messages, fn($m) => $m['role'] !== 'system'); $data = $this->request(array_values($clean), $this->build_tools($functions), $systemprompt, $maxtokens); return $this->normalise_response($data); } public function get_name(): string { return 'claude'; } } 
+    /**
+     * Sends the request to Claude.
+     *
+     * @param string $systemprompt
+     * @param array $messages
+     * @param array $tools
+     * @param string $model
+     * @param int $maxtokens
+     * @return array
+     */
+    public function chat(
+        string $systemprompt,
+        array $messages,
+        array $tools,
+        string $model,
+        int $maxtokens
+    ): array {
+        $url = 'https://api.anthropic.com/v1/messages';
+
+        $payload = [
+            'model'      => $model,
+            'system'     => $systemprompt,
+            'messages'   => $messages,
+            'tools'      => $tools,
+            'max_tokens' => $maxtokens,
+        ];
+
+        $curl = new \curl();
+        $curl->setHeader('x-api-key: ' . $this->apikey);
+        $curl->setHeader('anthropic-version: 2023-06-01');
+        $curl->setHeader('Content-Type: application/json');
+        $curl->setopt(['CURLOPT_TIMEOUT' => 30]);
+
+        $response = $curl->post($url, json_encode($payload));
+
+        return $this->parse_response($curl, $response);
+    }
+
+    /**
+     * Parses the Claude API response.
+     *
+     * @param \curl $curl
+     * @param mixed $response
+     * @return array
+     */
+    private function parse_response(\curl $curl, $response): array {
+        provider_helper::check_http_status($curl);
+
+        $data = json_decode($response, true);
+        if ($data === null) {
+            debugging('Claude provider JSON decode error: ' . $response, DEBUG_DEVELOPER);
+            throw new \moodle_exception('error_generic', 'local_campusai');
+        }
+
+        $content = '';
+        $toolcalls = [];
+        foreach ($data['content'] ?? [] as $block) {
+            if ($block['type'] === 'text') {
+                $content .= $block['text'];
+            } else if ($block['type'] === 'tool_use') {
+                $toolcalls[] = [
+                    'name'      => $block['name'] ?? '',
+                    'arguments' => $block['input'] ?? [],
+                ];
+            }
+        }
+
+        return [
+            'content'    => $content,
+            'tool_calls' => $toolcalls,
+            'tokens'     => ($data['usage']['input_tokens'] ?? 0) + ($data['usage']['output_tokens'] ?? 0),
+        ];
+    }
+}

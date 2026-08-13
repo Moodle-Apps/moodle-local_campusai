@@ -14,24 +14,108 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions\teacher;
 /**
+ * Gradebook summary.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class gradebook_summary extends base_teacher {
+    /**
+     * Returns the identifier.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'teacher_gradebook_summary';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the human-readable description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_teacher_gradebook_summary_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'What is the gradebook summary for my course?',
+            'Show average, min, and max grades.',
+        ];
+    }
 
+    /**
+     * Returns the JSON schema parameters.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type'       => 'object',
+            'properties' => [
+                'courseid' => [
+                    'type'        => 'integer',
+                    'description' => get_string('function_teacher_gradebook_summary_param_courseid', 'local_campusai'),
+                ],
+            ],
+            'required'   => ['courseid'],
+        ];
+    }
 
-namespace local_campusai\functions\teacher; defined('MOODLE_INTERNAL') || die(); class gradebook_summary extends base_teacher { public function get_definition(): array { return [ 'name' => 'get_gradebook_summary', 'description' => 'Get grade averages and distribution per activity in a course.', 'parameters' => [ 'type' => 'object', 'properties' => [ 'course_id' => ['type' => 'integer', 'description' => 'The course ID.'], ], 'required' => ['course_id'], ], ]; } public function execute(array $arguments): array { global $DB; $courseid = (int)($arguments['course_id'] ?? 0); if (!$courseid || !$this->is_teacher_in_course($courseid)) { return ['error' => 'Invalid course or you are not a teacher in this course.']; } $course = get_course($courseid); $sql = "SELECT gi.id, gi.itemname, gi.itemtype, gi.grademax,
-                       COUNT(gg.id) AS gradedcount,
-                       AVG(gg.finalgrade) AS avggrade,
-                       MIN(gg.finalgrade) AS mingrade,
-                       MAX(gg.finalgrade) AS maxgrade
-                  FROM {grade_items} gi
-             LEFT JOIN {grade_grades} gg ON gi.id = gg.itemid AND gg.finalgrade IS NOT NULL
-                 WHERE gi.courseid = ?
-              GROUP BY gi.id, gi.itemname, gi.itemtype, gi.grademax
-              ORDER BY gi.itemtype, gi.sortorder"; $items = $DB->get_records_sql($sql, [$courseid]); $result = []; foreach ($items as $item) { if ($item->gradedcount == 0) continue; $avg = round((float)$item->avggrade, 1); $pct = $item->grademax > 0 ? round(($avg / $item->grademax) * 100) : 0; $result[] = [ 'activity' => $item->itemname ?: ucfirst($item->itemtype), 'type' => $item->itemtype, 'students_graded' => (int)$item->gradedcount, 'average' => $avg, 'max_possible' => (float)$item->grademax, 'average_pct' => $pct, 'min' => round((float)$item->mingrade, 1), 'max' => round((float)$item->maxgrade, 1), ]; } return ['course' => $course->fullname, 'activities' => $result]; } } 
+    /**
+     * Executes the function and returns a plain text result.
+     * @param int $userid
+     * @param array $args
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        global $DB;
+
+        $courseid = !empty($args['courseid']) ? (int) $args['courseid'] : 0;
+        if (!$courseid) {
+            return get_string('function_teacher_gradebook_summary_missing_courseid', 'local_campusai');
+        }
+
+        $course = $DB->get_record('course', ['id' => $courseid]);
+        if (!$course || !has_capability('moodle/course:update', \context_course::instance($courseid), $userid)) {
+            return get_string('function_teacher_gradebook_summary_not_teacher', 'local_campusai');
+        }
+
+        $summary = $DB->get_record_sql(
+            "SELECT AVG(gg.finalgrade / gi.grademax * 100) AS avgpercent,
+                    MAX(gg.finalgrade / gi.grademax * 100) AS maxpercent,
+                    MIN(gg.finalgrade / gi.grademax * 100) AS minpercent,
+                    COUNT(*) AS count
+               FROM {grade_grades} gg
+               JOIN {grade_items} gi ON gi.id = gg.itemid
+              WHERE gi.courseid = :courseid
+                AND gi.itemtype = 'course'
+                AND gg.finalgrade IS NOT NULL",
+            ['courseid' => $courseid]
+        );
+
+        if (!$summary || !$summary->count) {
+            return get_string('function_teacher_gradebook_summary_empty', 'local_campusai');
+        }
+
+        $avg = round((float) $summary->avgpercent, 1);
+        $min = round((float) $summary->minpercent, 1);
+        $max = round((float) $summary->maxpercent, 1);
+
+        return get_string('function_teacher_gradebook_summary_result', 'local_campusai', (object) [
+            'avg' => $avg,
+            'min' => $min,
+            'max' => $max,
+            'count' => $summary->count,
+        ]);
+    }
+}

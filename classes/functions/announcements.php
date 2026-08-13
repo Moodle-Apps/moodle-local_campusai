@@ -14,23 +14,117 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions;
+
 /**
+ * announcements function.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class announcements extends base_function {
+    /**
+     * Returns the identifier.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'announcements';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the human-readable description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_announcements_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'What are the latest announcements?',
+            'Show course news.',
+        ];
+    }
 
+    /**
+     * Returns the JSON schema parameters.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'courseid' => [
+                    'type' => 'integer',
+                    'description' => get_string('function_announcements_param_courseid', 'local_campusai'),
+                ],
+                'limit' => [
+                    'type' => 'integer',
+                    'description' => get_string('function_announcements_param_limit', 'local_campusai'),
+                    'default' => 10,
+                ],
+            ],
+        ];
+    }
 
- namespace local_campusai\functions; defined('MOODLE_INTERNAL') || die(); class announcements extends base_function { public function get_definition(): array { return [ 'name' => 'get_announcements', 'description' => 'Get recent course announcements from the last 7 days. Optionally filter by course.', 'parameters' => [ 'type' => 'object', 'properties' => [ 'course_id' => [ 'type' => 'integer', 'description' => 'Optional course ID to filter announcements.', ], ], ], ]; } public function execute(array $arguments): array { global $DB; $courseid = $arguments['course_id'] ?? null; $cutoff = time() - (7 * DAYSECS); $courses = enrol_get_users_courses($this->userid); $courseids = array_keys($courses); if (empty($courseids)) { return ['announcements' => [], 'message' => 'No courses enrolled.']; } if ($courseid) { $courseids = in_array($courseid, $courseids) ? [$courseid] : []; } if (empty($courseids)) { return ['announcements' => [], 'message' => 'Invalid course.']; } list($insql, $inparams) = $DB->get_in_or_equal($courseids); $params = array_merge([$cutoff], $inparams); $sql = "SELECT fp.subject, fp.message, fp.modified, f.course AS courseid, f.name AS forumname,
-                       c.fullname AS coursename, u.firstname, u.lastname
-                  FROM {forum_posts} fp
-                  JOIN {forum_discussions} fd ON fp.discussion = fd.id
-                  JOIN {forum} f ON fd.forum = f.id
-                  JOIN {course} c ON f.course = c.id
-                  JOIN {user} u ON fp.userid = u.id
-                 WHERE f.type = 'news' AND fp.modified >= ? AND f.course $insql
-                 ORDER BY fp.modified DESC LIMIT 20"; $posts = $DB->get_records_sql($sql, $params); $result = []; foreach ($posts as $post) { $result[] = [ 'course' => $post->coursename, 'subject' => $post->subject, 'author' => trim($post->firstname . ' ' . $post->lastname), 'date' => $this->format_date($post->modified), 'preview' => substr(strip_tags($post->message), 0, 200), ]; } return ['announcements' => $result]; } } 
+    /**
+     * Executes the function and returns a plain text result.
+     * @param int $userid
+     * @param array $args
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        global $DB;
+
+        $courseid = $args['courseid'] ?? 0;
+        $limit = $args['limit'] ?? 10;
+
+        if ($courseid) {
+            if (!is_enrolled(\context_course::instance($courseid), $userid)) {
+                return get_string('error_no_course_access', 'local_campusai');
+            }
+            $courseids = [$courseid];
+        } else {
+            $courses = enrol_get_users_courses($userid, true, 'id');
+            $courseids = array_keys($courses);
+        }
+
+        if (empty($courseids)) {
+            return get_string('error_not_enrolled', 'local_campusai');
+        }
+
+        [$insql, $params] = $DB->get_in_or_equal($courseids, SQL_PARAMS_NAMED);
+        $params['userid'] = $userid;
+
+        $sql = "SELECT p.id, p.subject, p.message, d.course, d.timemodified
+                  FROM {forum_discussions} d
+                  JOIN {forum_posts} p ON p.discussion = d.id
+                  JOIN {forum} f ON f.id = d.forum
+                 WHERE f.type = 'news' AND d.course $insql
+              ORDER BY d.timemodified DESC";
+
+        $records = $DB->get_records_sql($sql, $params, 0, $limit);
+
+        if (empty($records)) {
+            return get_string('function_announcements_empty', 'local_campusai');
+        }
+
+        $lines = [];
+        foreach ($records as $r) {
+            $course = $DB->get_record('course', ['id' => $r->course], 'shortname', MUST_EXIST);
+            $lines[] = '- **' . strip_tags($r->subject) . '** (' . $course->shortname . '): ' .
+                shorten_text(strip_tags($r->message), 120);
+        }
+
+        return implode("\n", $lines);
+    }
+}

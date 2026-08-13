@@ -15,14 +15,20 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
+ * Upgrade hook for Campus Assistant.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
-
-
-
- defined('MOODLE_INTERNAL') || die(); function xmldb_local_campusai_upgrade(int $oldversion): bool { return true; } 
+/**
+ * Upgrades the plugin database schema and data.
+ *
+ * @param int $oldversion The old plugin version.
+ * @return bool
+ */
+function xmldb_local_campusai_upgrade($oldversion): bool {
+    // First public release: no upgrade steps required.
+    return true;
+}

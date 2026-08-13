@@ -14,15 +14,136 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions\teacher;
 /**
+ * Overdue assignments in teacher courses.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class overdue_assignments extends base_teacher {
+    /**
+     * Returns the identifier.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'teacher_overdue_assignments';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the human-readable description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_teacher_overdue_assignments_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'Which students have overdue assignments in my course?',
+            'Show me late submissions.',
+        ];
+    }
 
+    /**
+     * Returns the JSON schema parameters.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type'       => 'object',
+            'properties' => [
+                'courseid' => [
+                    'type'        => 'integer',
+                    'description' => get_string('function_teacher_overdue_assignments_param_courseid', 'local_campusai'),
+                ],
+                'limit' => [
+                    'type'        => 'integer',
+                    'description' => get_string('function_teacher_overdue_assignments_param_limit', 'local_campusai'),
+                    'default'     => 10,
+                ],
+            ],
+            'required'   => [],
+        ];
+    }
 
-namespace local_campusai\functions\teacher; defined('MOODLE_INTERNAL') || die(); class overdue_assignments extends base_teacher { public function get_definition(): array { return [ 'name' => 'get_overdue_assignments', 'description' => 'Get students who submitted assignments after the due date in a course.', 'parameters' => [ 'type' => 'object', 'properties' => [ 'course_id' => ['type' => 'integer', 'description' => 'The course ID.'], ], 'required' => ['course_id'], ], ]; } public function execute(array $arguments): array { global $DB; $courseid = (int)($arguments['course_id'] ?? 0); if (!$courseid || !$this->is_teacher_in_course($courseid)) { return ['error' => 'Invalid course or you are not a teacher in this course.']; } $course = get_course($courseid); $modinfo = get_fast_modinfo($courseid, $this->userid); $assigns = $modinfo->get_instances_of('assign'); $result = []; foreach ($assigns as $cm) { if (!$cm->visible) continue; $assign = $DB->get_record('assign', ['id' => $cm->instance], 'name, duedate', IGNORE_MISSING); if (!$assign || $assign->duedate <= 0) continue; $submissions = $DB->get_records_select( 'assign_submission', 'assignment = ? AND status = ? AND timemodified > ?', [$cm->instance, 'submitted', $assign->duedate], 'timemodified DESC', 'userid, timemodified', 0, 50 ); foreach ($submissions as $sub) { $user = \core_user::get_user($sub->userid, 'firstname, lastname'); $lateness = $sub->timemodified - $assign->duedate; $result[] = [ 'assignment' => $assign->name, 'student' => $user ? trim($user->firstname . ' ' . $user->lastname) : 'Unknown', 'due_date' => $this->format_date($assign->duedate), 'submitted' => $this->format_date($sub->timemodified), 'late_by_days' => round($lateness / DAYSECS, 1), ]; } } return ['course' => $course->fullname, 'overdue_submissions' => $result, 'count' => count($result)]; } } 
+    /**
+     * Executes the function and returns a plain text result.
+     * @param int $userid
+     * @param array $args
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        global $DB;
+
+        $courseid = !empty($args['courseid']) ? (int) $args['courseid'] : 0;
+        $limit = !empty($args['limit']) ? (int) $args['limit'] : 10;
+
+        if ($courseid) {
+            $course = $DB->get_record('course', ['id' => $courseid]);
+            if (!$course || !has_capability('moodle/course:update', \context_course::instance($courseid), $userid)) {
+                return get_string('function_teacher_overdue_assignments_not_teacher', 'local_campusai');
+            }
+            $courseids = [$courseid];
+        } else {
+            $courses = get_user_capability_course('moodle/course:update', $userid);
+            if (!$courses) {
+                return get_string('function_teacher_overdue_assignments_no_teaching', 'local_campusai');
+            }
+            $courseids = array_map(function ($c) {
+                return (int) $c->id;
+            }, $courses);
+        }
+
+        [$insql, $inparams] = $DB->get_in_or_equal($courseids, SQL_PARAMS_NAMED, 'c');
+        $now = time();
+
+        $sql = "SELECT a.id, a.name, a.duedate, c.shortname,
+                       (SELECT COUNT(DISTINCT ra.userid)
+                          FROM {role_assignments} ra
+                          JOIN {role} r ON r.id = ra.roleid AND r.archetype = 'student'
+                          JOIN {context} ctx ON ctx.id = ra.contextid
+                               AND ctx.contextlevel = 50
+                               AND ctx.instanceid = a.course) AS totalstudents,
+                       (SELECT COUNT(DISTINCT sub.userid)
+                          FROM {assign_submission} sub
+                         WHERE sub.assignment = a.id
+                           AND sub.status = 'submitted') AS submitted
+                  FROM {assign} a
+                  JOIN {course} c ON c.id = a.course
+                 WHERE a.course $insql
+                   AND a.duedate > 0
+                   AND a.duedate < :now
+                 ORDER BY a.duedate ASC";
+
+        $params = array_merge($inparams, ['now' => $now]);
+        $assignments = $DB->get_records_sql($sql, $params, 0, $limit);
+
+        if (!$assignments) {
+            return get_string('function_teacher_overdue_assignments_empty', 'local_campusai');
+        }
+
+        $lines = [];
+        foreach ($assignments as $a) {
+            $pending = max(0, (int) $a->totalstudents - (int) $a->submitted);
+            $date = \userdate($a->duedate, '%d/%m/%Y');
+            $lines[] = get_string('function_teacher_overdue_assignments_item', 'local_campusai', (object) [
+                'name' => $a->name,
+                'shortname' => $a->shortname,
+                'date' => $date,
+                'pending' => $pending,
+            ]);
+        }
+
+        return implode("\n", $lines);
+    }
+}

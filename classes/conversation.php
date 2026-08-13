@@ -14,15 +14,90 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai;
+
 /**
+ * Conversation data access object.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class conversation {
+    /** @var string Table name for conversation turns. */
+    public const TABLE = 'local_campusai_conversation';
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Records a conversation turn.
+     *
+     * @param int $userid User ID.
+     * @param string $usermessage Sanitised user message.
+     * @param string $assistantmessage Sanitised assistant message.
+     * @param string $provider Provider name.
+     * @param int $tokensused Approximate token usage.
+     * @param string|null $functionscalled JSON array of function calls.
+     * @return void
+     */
+    public static function record(
+        int $userid,
+        string $usermessage,
+        string $assistantmessage,
+        string $provider,
+        int $tokensused = 0,
+        ?string $functionscalled = null
+    ): void {
+        global $DB;
 
+        if (!get_config('local_campusai', 'auditlog')) {
+            return;
+        }
 
+        $record = new \stdClass();
+        $record->userid = $userid;
+        $record->usermessage = $usermessage;
+        $record->assistantmessage = $assistantmessage;
+        $record->functionscalled = $functionscalled;
+        $record->provider = $provider;
+        $record->tokensused = $tokensused;
+        $record->timecreated = time();
 
- namespace local_campusai; defined('MOODLE_INTERNAL') || die(); class conversation { protected $userid; protected $sessionkey; const MAX_CONTEXT = 10; public function __construct(int $userid) { $this->userid = $userid; $this->sessionkey = 'campusai_messages_' . $userid; } public function get_messages(): array { global $SESSION; if (!isset($SESSION->{$this->sessionkey})) { return []; } return json_decode($SESSION->{$this->sessionkey}, true) ?: []; } public function add_message(string $role, string $content, ?string $functionname = null): void { global $SESSION; $messages = $this->get_messages(); $msg = ['role' => $role, 'content' => $content]; if ($functionname) { $msg['name'] = $functionname; } $messages[] = $msg; if (count($messages) > self::MAX_CONTEXT * 2) { $messages = array_slice($messages, -self::MAX_CONTEXT * 2); } $SESSION->{$this->sessionkey} = json_encode($messages); } public function add_function_call(string $functionname, array $arguments): void { global $SESSION; $messages = $this->get_messages(); $messages[] = [ 'role' => 'assistant', 'content' => null, 'tool_calls' => [[ 'id' => 'call_' . uniqid(), 'type' => 'function', 'function' => [ 'name' => $functionname, 'arguments' => json_encode($arguments), ], ]], ]; $SESSION->{$this->sessionkey} = json_encode($messages); } public function clear(): void { global $SESSION; unset($SESSION->{$this->sessionkey}); } public function log_interaction( string $usermessage, string $assistantmessage, array $functionscalled, string $provider, int $tokensused ): void { global $DB; if (!get_config('local_campusai', 'auditlog')) { return; } $record = (object) [ 'userid' => $this->userid, 'usermessage' => security::truncate($usermessage, 500), 'assistantmessage' => security::truncate($assistantmessage, 2000), 'functionscalled' => json_encode($functionscalled), 'provider' => $provider, 'tokensused' => $tokensused, 'timecreated' => time(), ]; $DB->insert_record('local_campusai_conversation', $record); } public static function purge_old_logs(): void { global $DB; $retention = (int) get_config('local_campusai', 'logretention'); if ($retention <= 0) { return; } $cutoff = time() - ($retention * DAYSECS); $DB->delete_records_select('local_campusai_conversation', 'timecreated < ?', [$cutoff]); } } 
+        $DB->insert_record(self::TABLE, $record);
+    }
+
+    /**
+     * Returns recent conversation history for a user.
+     *
+     * @param int $userid User ID.
+     * @param int $limit Number of recent turns to return.
+     * @return array List of records.
+     */
+    public static function get_recent(int $userid, int $limit = 6): array {
+        global $DB;
+
+        return $DB->get_records(
+            self::TABLE,
+            ['userid' => $userid],
+            'timecreated DESC',
+            '*',
+            0,
+            $limit
+        );
+    }
+
+    /**
+     * Purges conversation logs older than the configured retention period.
+     *
+     * @return void
+     */
+    public static function purge_old_logs(): void {
+        global $DB;
+
+        $days = (int) get_config('local_campusai', 'logretention');
+        if ($days <= 0) {
+            return;
+        }
+
+        $cutoff = time() - ($days * 86400);
+        $DB->delete_records_select(self::TABLE, 'timecreated < :cutoff', ['cutoff' => $cutoff]);
+    }
+}

@@ -14,15 +14,82 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions\admin;
+
 /**
+ * System health function.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class system_health extends base_admin {
+    /**
+     * Returns the function name.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'admin_system_health';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the function description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_admin_system_health_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions for the widget.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'What is the system health status?',
+            'Show Moodle version and disk space.',
+        ];
+    }
 
+    /**
+     * Returns the function parameters schema.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type' => 'object',
+            'properties' => (object) [],
+            'required' => [],
+        ];
+    }
 
-namespace local_campusai\functions\admin; defined('MOODLE_INTERNAL') || die(); class system_health extends base_admin { public function get_definition(): array { return [ 'name' => 'get_system_health', 'description' => 'Get system health: last cron run, pending tasks, and recent errors.', 'parameters' => ['type' => 'object', 'properties' => new \stdClass()], ]; } public function execute(array $arguments): array { global $DB, $CFG; $lastcron = get_config('core', 'lastcron'); $cronoverdue = $lastcron && (time() - $lastcron > 3600); $pendingtasks = 0; try { $pendingtasks = $DB->count_records_select('task_adhoc', 'nextruntime <= ?', [time()]); } catch (\Exception $e) { } $failedtasks = 0; try { $failedtasks = $DB->count_records_select('task_log', 'output LIKE ?', ['%error%']); } catch (\Exception $e) { } $moodlerelease = $CFG->release ?? 'Unknown'; $phpversion = phpversion(); $active24h = $DB->count_records_select('user', "lastlogin > ? AND deleted = 0 AND suspended = 0", [time() - DAYSECS]); $cachestores = []; try { $helper = new \ReflectionClass('cache_helper'); $method = $helper->getMethod('get_store_instances'); $method->setAccessible(true); $config = \cache_config::instance(); $cachestores = ['Cache system operational']; } catch (\Exception $e) { $cachestores = ['Unable to query cache stores']; } return [ 'moodle_version' => $moodlerelease, 'php_version' => $phpversion, 'last_cron' => $lastcron ? $this->format_date($lastcron) : 'Never', 'cron_overdue' => (bool)$cronoverdue, 'pending_adhoc_tasks' => (int)$pendingtasks, 'recent_task_errors' => (int)$failedtasks, 'active_users_24h' => (int)$active24h, 'cache_stores' => $cachestores, 'status' => $cronoverdue ? 'warning' : 'ok', ]; } } 
+    /**
+     * Executes the function.
+     *
+     * @param int $userid User ID.
+     * @param array $args Arguments from the LLM.
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        global $CFG;
+
+        if (!has_capability('local/campusai:manage', \context_system::instance(), $userid)) {
+            return get_string('function_admin_system_health_permission', 'local_campusai');
+        }
+
+        $release = $CFG->release ?? get_string('function_admin_system_health_unknown', 'local_campusai');
+        $diskfree = function_exists('disk_free_space') ? disk_free_space($CFG->dataroot) : false;
+        $free = $diskfree !== false
+            ? display_size($diskfree)
+            : get_string('function_admin_system_health_free_unavailable', 'local_campusai');
+
+        return get_string('function_admin_system_health_result', 'local_campusai', (object) [
+            'release' => $release,
+            'free' => $free,
+        ]);
+    }
+}

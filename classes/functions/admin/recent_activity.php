@@ -14,21 +14,116 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions\admin;
+
 /**
+ * Recent campus activity feed function.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class recent_activity extends base_admin {
+    /**
+     * Returns the function name.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'admin_recent_activity';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the function description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_admin_recent_activity_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions for the widget.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'What happened on the platform recently?',
+            'Show recent campus activity.',
+        ];
+    }
 
+    /**
+     * Returns the function parameters schema.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'days' => [
+                    'type' => 'integer',
+                    'description' => get_string('param_days_back', 'local_campusai'),
+                    'default' => 7,
+                ],
+                'limit' => [
+                    'type' => 'integer',
+                    'description' => get_string('param_limit', 'local_campusai'),
+                    'default' => 20,
+                ],
+            ],
+            'required' => [],
+        ];
+    }
 
-namespace local_campusai\functions\admin; class recent_activity extends base_admin { public function get_definition(): array { return [ 'name' => 'get_recent_activity', 'description' => 'Get recent campus activity: new users, new enrollments, recent logins.', 'parameters' => [ 'type' => 'object', 'properties' => [ 'days' => [ 'type' => 'integer', 'description' => 'Activity from the last N days (default 7).', ], ], ], ]; } public function execute(array $arguments): array { global $DB; $days = (int)($arguments['days'] ?? 7); $days = max(1, min(90, $days)); $cutoff = time() - ($days * DAYSECS); $newusers = $DB->count_records_select('user', "timecreated > ? AND deleted = 0", [$cutoff]); $newenrolments = $DB->count_records_select('user_enrolments', "timestart > ?", [$cutoff]); $recentlogins = $DB->count_records_select('user', "lastlogin > ? AND deleted = 0", [$cutoff]); $sql = "SELECT c.fullname, COUNT(l.id) AS log_count
-                FROM {logstore_standard_log} l
-                JOIN {course} c ON c.id = l.courseid
-                WHERE l.timecreated > ? AND l.courseid > 1
-                GROUP BY c.fullname
-                ORDER BY log_count DESC
-                LIMIT 5"; $activecourses = []; $rs = $DB->get_recordset_sql($sql, [$cutoff]); foreach ($rs as $r) { $activecourses[] = ['course' => $r->fullname, 'activity_entries' => (int)$r->log_count]; } $rs->close(); return [ 'days' => $days, 'new_users' => (int)$newusers, 'new_enrollments' => (int)$newenrolments, 'recent_logins' => (int)$recentlogins, 'most_active_courses' => $activecourses, ]; } } 
+    /**
+     * Executes the function.
+     *
+     * @param int $userid User ID.
+     * @param array $args Arguments from the LLM.
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        global $DB;
+
+        if (!has_capability('local/campusai:manage', \context_system::instance(), $userid)) {
+            return get_string('function_admin_recent_activity_permission', 'local_campusai');
+        }
+
+        $days = isset($args['days']) ? (int) $args['days'] : 7;
+        $days = max($days, 1);
+        $limit = isset($args['limit']) ? (int) $args['limit'] : 20;
+        $limit = min(max($limit, 1), 100);
+
+        $threshold = time() - ($days * DAYSECS);
+
+        $sql = "SELECT l.id, l.timecreated, l.action, u.firstname, u.lastname, c.fullname AS course
+                  FROM {logstore_standard_log} l
+                  JOIN {user} u ON u.id = l.userid
+                  JOIN {course} c ON c.id = l.courseid
+                 WHERE l.timecreated > :threshold
+              ORDER BY l.timecreated DESC";
+
+        $records = $DB->get_records_sql($sql, ['threshold' => $threshold], 0, $limit);
+
+        if (empty($records)) {
+            return get_string('function_admin_recent_activity_empty', 'local_campusai', (object) ['days' => $days]);
+        }
+
+        $lines = [];
+        foreach ($records as $record) {
+            $name = fullname($record);
+            $time = userdate($record->timecreated, '%d/%m/%Y %H:%M');
+            $lines[] = get_string('function_admin_recent_activity_item', 'local_campusai', (object) [
+                'time' => $time,
+                'name' => $name,
+                'course' => $record->course,
+                'action' => $record->action,
+            ]);
+        }
+
+        return implode("\n", $lines);
+    }
+}

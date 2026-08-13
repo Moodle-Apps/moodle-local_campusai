@@ -14,15 +14,68 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions;
+
 /**
+ * Abstract base class for assistant functions.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+abstract class base_function {
+    /**
+     * Unique snake_case identifier used by the LLM.
+     *
+     * @return string
+     */
+    abstract public static function name(): string;
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Human-readable description for the LLM.
+     *
+     * @return string
+     */
+    abstract public static function description(): string;
 
+    /**
+     * JSON Schema parameters in OpenAI tool format.
+     *
+     * @return array
+     */
+    abstract public static function parameters(): array;
 
+    /**
+     * Executes the function and returns a plain text result.
+     *
+     * @param int $userid User ID.
+     * @param array $args Arguments from the LLM.
+     * @return string
+     */
+    abstract public function execute(int $userid, array $args): string;
 
- namespace local_campusai\functions; defined('MOODLE_INTERNAL') || die(); abstract class base_function { protected $userid; public function __construct(int $userid) { $this->userid = $userid; } abstract public function get_definition(): array; abstract public function execute(array $arguments): array; protected function format_date(int $timestamp): string { return date('j M Y, H:i', $timestamp); } protected function is_enrolled(int $courseid): bool { global $DB; $context = \context_course::instance($courseid); return is_enrolled($context, $this->userid); } } 
+    /**
+     * Returns example questions that this function can answer.
+     *
+     * @return string[]
+     */
+    public static function examples(): array {
+        return [];
+    }
+
+    /**
+     * Returns the tool definition for this function.
+     *
+     * @return array
+     */
+    final public static function to_tool(): array {
+        return [
+            'type'     => 'function',
+            'function' => [
+                'name'        => static::name(),
+                'description' => static::description(),
+                'parameters'  => static::parameters(),
+            ],
+        ];
+    }
+}

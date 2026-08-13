@@ -14,15 +14,95 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions;
+
 /**
+ * course_resources function.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class course_resources extends base_function {
+    /**
+     * Returns the identifier.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'course_resources';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the human-readable description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_course_resources_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'What resources are available in this course?',
+            'List course materials.',
+        ];
+    }
 
+    /**
+     * Returns the JSON schema parameters.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'courseid' => [
+                    'type' => 'integer',
+                    'description' => get_string('param_courseid', 'local_campusai'),
+                ],
+            ],
+            'required' => ['courseid'],
+        ];
+    }
 
- namespace local_campusai\functions; defined('MOODLE_INTERNAL') || die(); class course_resources extends base_function { public function get_definition(): array { return [ 'name' => 'get_course_resources', 'description' => 'Get study materials and resources (PDFs, videos, links, pages) from a course, excluding activities.', 'parameters' => [ 'type' => 'object', 'properties' => [ 'course_id' => [ 'type' => 'integer', 'description' => 'The course ID.', ], ], 'required' => ['course_id'], ], ]; } public function execute(array $arguments): array { global $DB; $courseid = (int)($arguments['course_id'] ?? 0); if (!$courseid || !$this->is_enrolled($courseid)) { return ['resources' => [], 'message' => 'Invalid course or not enrolled.']; } $resourcetypes = ['resource', 'url', 'page', 'folder', 'book', 'imscp', 'media', 'videofile']; $modinfo = get_fast_modinfo($courseid, $this->userid); $cms = $modinfo->get_cms(); $resources = []; foreach ($cms as $cm) { if (!in_array($cm->modname, $resourcetypes)) { continue; } if (!$cm->visible) { continue; } $resources[] = [ 'name' => $cm->name, 'type' => $cm->modname, 'section' => $cm->sectionnum, 'url' => (string)(new \moodle_url('/mod/' . $cm->modname . '/view.php', ['id' => $cm->id])), ]; } $bysection = []; foreach ($resources as $res) { $bysection[$res['section']][] = $res; } return ['resources' => $resources, 'by_section' => $bysection]; } } 
+    /**
+     * Executes the function and returns a plain text result.
+     * @param int $userid
+     * @param array $args
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        $courseid = $args['courseid'];
+
+        if (!is_enrolled(\context_course::instance($courseid), $userid)) {
+            return get_string('error_no_course_access', 'local_campusai');
+        }
+
+        $modinfo = get_fast_modinfo($courseid, $userid);
+        $lines = [];
+        $hasresources = false;
+
+        foreach ($modinfo->get_cms() as $cm) {
+            $modname = $cm->modname;
+            if (in_array($modname, ['resource', 'url', 'folder', 'book', 'page'])) {
+                if ($cm->uservisible) {
+                    $lines[] = '- **' . $cm->get_formatted_name() . '** (' . get_string('modulename', $modname) . ')';
+                    $hasresources = true;
+                }
+            }
+        }
+
+        if (!$hasresources) {
+            return get_string('function_course_resources_empty', 'local_campusai');
+        }
+
+        return implode("\n", $lines);
+    }
+}

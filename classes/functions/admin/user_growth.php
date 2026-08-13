@@ -14,19 +14,111 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions\admin;
+
 /**
+ * User growth over time function.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class user_growth extends base_admin {
+    /**
+     * Returns the function name.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'admin_user_growth';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the function description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_admin_user_growth_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions for the widget.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'How has user registration grown over the last year?',
+            'Show monthly user growth.',
+        ];
+    }
 
+    /**
+     * Returns the function parameters schema.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'months' => [
+                    'type' => 'integer',
+                    'description' => get_string('function_admin_user_growth_param_months', 'local_campusai'),
+                    'default' => 12,
+                ],
+            ],
+            'required' => [],
+        ];
+    }
 
-namespace local_campusai\functions\admin; defined('MOODLE_INTERNAL') || die(); class user_growth extends base_admin { public function get_definition(): array { return [ 'name' => 'get_user_growth', 'description' => 'Get new user registrations and enrolments over a recent period.', 'parameters' => [ 'type' => 'object', 'properties' => [ 'days' => ['type' => 'integer', 'description' => 'Number of days to analyze (default 30).'], ], ], ]; } public function execute(array $arguments): array { global $DB; $days = (int)($arguments['days'] ?? 30); $cutoff = time() - ($days * DAYSECS); $newusers = $DB->count_records_select('user', "timecreated >= ? AND deleted = 0 AND suspended = 0", [$cutoff]); $newenrolments = $DB->count_records_select('user_enrolments', "timemodified >= ?", [$cutoff]); $sql = "SELECT FROM_UNIXTIME(timecreated, '%Y-%m-%d') AS day,
-                       COUNT(*) AS count
-                  FROM {user}
-                 WHERE timecreated >= ? AND deleted = 0 AND suspended = 0
-              GROUP BY day ORDER BY day ASC"; $daily = $DB->get_records_sql($sql, [$cutoff]); $trend = []; foreach ($daily as $day) { $trend[] = ['date' => $day->day, 'new_users' => (int)$day->count]; } return [ 'period_days' => $days, 'new_users' => (int)$newusers, 'new_enrolments' => (int)$newenrolments, 'daily_trend' => $trend, ]; } } 
+    /**
+     * Executes the function.
+     *
+     * @param int $userid User ID.
+     * @param array $args Arguments from the LLM.
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        global $DB;
+
+        if (!has_capability('local/campusai:manage', \context_system::instance(), $userid)) {
+            return get_string('function_admin_user_growth_permission', 'local_campusai');
+        }
+
+        $months = isset($args['months']) ? (int) $args['months'] : 12;
+        $months = min(max($months, 1), 60);
+
+        $threshold = strtotime("-{$months} months");
+        $records = $DB->get_records_sql(
+            "SELECT id, timecreated FROM {user} WHERE deleted = 0 AND timecreated > :threshold",
+            ['threshold' => $threshold]
+        );
+
+        if (empty($records)) {
+            return get_string('function_admin_user_growth_empty', 'local_campusai');
+        }
+
+        $grouped = [];
+        foreach ($records as $record) {
+            $key = date('Y-m', (int) $record->timecreated);
+            if (!isset($grouped[$key])) {
+                $grouped[$key] = 0;
+            }
+            $grouped[$key]++;
+        }
+
+        krsort($grouped);
+
+        $lines = [];
+        foreach ($grouped as $month => $count) {
+            $lines[] = get_string('function_admin_user_growth_item', 'local_campusai', (object) [
+                'month' => $month,
+                'count' => $count,
+            ]);
+        }
+
+        return implode("\n", $lines);
+    }
+}

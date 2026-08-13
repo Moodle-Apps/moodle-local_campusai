@@ -14,25 +14,121 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions\admin;
+
 /**
+ * Teachers without assigned courses function.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class teachers_without_courses extends base_admin {
+    /**
+     * Returns the function name.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'admin_teachers_without_courses';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the function description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_admin_teachers_without_courses_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions for the widget.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'Which teachers are not assigned to any course?',
+            'Show unassigned teachers.',
+        ];
+    }
 
+    /**
+     * Returns the function parameters schema.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'limit' => [
+                    'type' => 'integer',
+                    'description' => get_string('param_limit', 'local_campusai'),
+                    'default' => 50,
+                ],
+            ],
+            'required' => [],
+        ];
+    }
 
-namespace local_campusai\functions\admin; defined('MOODLE_INTERNAL') || die(); class teachers_without_courses extends base_admin { public function get_definition(): array { return [ 'name' => 'get_teachers_without_courses', 'description' => 'Get users with teacher or editingteacher role who have no course assigned.', 'parameters' => ['type' => 'object', 'properties' => new \stdClass()], ]; } public function execute(array $arguments): array { global $DB; $sql = "SELECT DISTINCT u.id, u.firstname, u.lastname
+    /**
+     * Executes the function.
+     *
+     * @param int $userid User ID.
+     * @param array $args Arguments from the LLM.
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        global $DB;
+
+        if (!has_capability('local/campusai:manage', \context_system::instance(), $userid)) {
+            return get_string('function_admin_teachers_without_courses_permission', 'local_campusai');
+        }
+
+        $limit = isset($args['limit']) ? (int) $args['limit'] : 50;
+        $limit = min(max($limit, 1), 200);
+
+        $teacherroles = get_archetype_roles('editingteacher');
+        if (empty($teacherroles)) {
+            return get_string('function_admin_teachers_without_courses_no_roles', 'local_campusai');
+        }
+
+        $roleids = array_map(function ($role) {
+            return (int) $role->id;
+        }, $teacherroles);
+        [$insql, $inparams] = $DB->get_in_or_equal($roleids, SQL_PARAMS_NAMED);
+
+        $sql = "SELECT DISTINCT u.id, u.firstname, u.lastname, u.email
                   FROM {user} u
                   JOIN {role_assignments} ra ON ra.userid = u.id
-                  JOIN {role} r ON ra.roleid = r.id
-                 WHERE r.shortname IN ('teacher', 'editingteacher')
-                   AND u.deleted = 0 AND u.suspended = 0"; $teachers = $DB->get_records_sql($sql); $result = []; foreach ($teachers as $teacher) { $hascourse = $DB->record_exists_sql( "SELECT 1
-                   FROM {role_assignments} ra
-                   JOIN {context} ctx ON ra.contextid = ctx.id
-                   JOIN {role} r ON ra.roleid = r.id
-                  WHERE ra.userid = ? AND r.shortname IN ('teacher', 'editingteacher')
-                    AND ctx.contextlevel = ?", [$teacher->id, CONTEXT_COURSE] ); if (!$hascourse) { $courses = enrol_get_users_courses($teacher->id); $isteacheranywhere = false; foreach ($courses as $course) { $context = \context_course::instance($course->id); $roles = get_user_roles($context, $teacher->id, false); foreach ($roles as $role) { if (in_array($role->shortname, ['teacher', 'editingteacher'])) { $isteacheranywhere = true; break 2; } } } if (!$isteacheranywhere) { $result[] = [ 'name' => trim($teacher->firstname . ' ' . $teacher->lastname), ]; } } } return ['teachers_without_courses' => $result, 'count' => count($result)]; } } 
+                 WHERE ra.roleid {$insql}
+                   AND u.deleted = 0
+                   AND u.suspended = 0
+                   AND NOT EXISTS (
+                       SELECT 1
+                         FROM {role_assignments} ra2
+                         JOIN {context} ctx ON ctx.id = ra2.contextid
+                        WHERE ra2.userid = u.id
+                          AND ra2.roleid {$insql}
+                          AND ctx.contextlevel = :coursecontext
+                   )
+              ORDER BY u.lastname, u.firstname";
+
+        $params = array_merge($inparams, ['coursecontext' => CONTEXT_COURSE]);
+        $records = $DB->get_records_sql($sql, $params, 0, $limit);
+
+        if (empty($records)) {
+            return get_string('function_admin_teachers_without_courses_empty', 'local_campusai');
+        }
+
+        $lines = [];
+        foreach ($records as $record) {
+            $name = fullname($record);
+            $lines[] = "- {$name} ({$record->email})";
+        }
+
+        return implode("\n", $lines);
+    }
+}

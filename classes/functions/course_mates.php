@@ -14,15 +14,92 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions;
+
 /**
+ * course_mates function.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class course_mates extends base_function {
+    /**
+     * Returns the identifier.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'course_mates';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the human-readable description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_course_mates_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'Who else is in my course?',
+            'List my classmates.',
+        ];
+    }
 
+    /**
+     * Returns the JSON schema parameters.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'courseid' => [
+                    'type' => 'integer',
+                    'description' => get_string('param_courseid', 'local_campusai'),
+                ],
+            ],
+            'required' => ['courseid'],
+        ];
+    }
 
- namespace local_campusai\functions; defined('MOODLE_INTERNAL') || die(); class course_mates extends base_function { public function get_definition(): array { return [ 'name' => 'get_course_mates', 'description' => 'Get the list of classmates in a course (names only, no contact info).', 'parameters' => [ 'type' => 'object', 'properties' => [ 'course_id' => [ 'type' => 'integer', 'description' => 'The course ID.', ], ], 'required' => ['course_id'], ], ]; } public function execute(array $arguments): array { global $DB; $courseid = (int)($arguments['course_id'] ?? 0); if (!$courseid || !$this->is_enrolled($courseid)) { return ['mates' => [], 'message' => 'Invalid course or not enrolled.']; } $context = \context_course::instance($courseid); $students = get_role_users(5, $context, false, 'u.id, u.firstname, u.lastname', 'u.lastname ASC', '', '', 100); $mates = []; foreach ($students as $student) { if ($student->id == $this->userid) { continue; } $mates[] = [ 'name' => trim($student->firstname . ' ' . $student->lastname), ]; } return ['mates' => $mates, 'count' => count($mates)]; } } 
+    /**
+     * Executes the function and returns a plain text result.
+     * @param int $userid
+     * @param array $args
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        $courseid = $args['courseid'];
+
+        if (!is_enrolled(\context_course::instance($courseid), $userid)) {
+            return get_string('error_no_course_access', 'local_campusai');
+        }
+
+        $context = \context_course::instance($courseid);
+        $users = get_enrolled_users($context, '', 0, 'u.id, u.firstname, u.lastname, u.email', 'u.lastname, u.firstname');
+
+        $lines = [];
+        foreach ($users as $user) {
+            if ($user->id == $userid) {
+                continue;
+            }
+            $lines[] = '- ' . fullname($user) . ' (' . $user->email . ')';
+        }
+
+        if (empty($lines)) {
+            return get_string('function_course_mates_empty', 'local_campusai');
+        }
+
+        return implode("\n", $lines);
+    }
+}

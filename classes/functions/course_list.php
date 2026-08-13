@@ -14,15 +14,76 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions;
+
 /**
+ * course_list function.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class course_list extends base_function {
+    /**
+     * Returns the identifier.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'course_list';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the human-readable description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_course_list_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'What courses am I enrolled in?',
+            'List my current courses.',
+        ];
+    }
 
+    /**
+     * Returns the JSON schema parameters.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type' => 'object',
+            'properties' => (object) [],
+        ];
+    }
 
- namespace local_campusai\functions; defined('MOODLE_INTERNAL') || die(); class course_list extends base_function { public function get_definition(): array { return [ 'name' => 'get_my_courses', 'description' => 'Get the list of active courses the student is currently enrolled in.', 'parameters' => [ 'type' => 'object', 'properties' => new \stdClass(), ], ]; } public function execute(array $arguments): array { $courses = enrol_get_users_courses($this->userid, true); $result = []; foreach ($courses as $course) { $result[] = [ 'id' => (int) $course->id, 'name' => $course->fullname, 'shortname' => $course->shortname, 'category' => $course->category, ]; } return ['courses' => $result]; } } 
+    /**
+     * Executes the function and returns a plain text result.
+     * @param int $userid
+     * @param array $args
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        $courses = enrol_get_users_courses($userid, true, 'id, fullname, shortname');
+
+        if (empty($courses)) {
+            return get_string('error_not_enrolled', 'local_campusai');
+        }
+
+        $lines = [];
+        foreach ($courses as $course) {
+            $lines[] = '- **' . $course->fullname . '** (' . $course->shortname . ')';
+        }
+
+        return implode("\n", $lines);
+    }
+}

@@ -14,25 +14,119 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions\admin;
+
 /**
+ * Pending submissions function.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class pending_submissions extends base_admin {
+    /**
+     * Returns the function name.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'admin_pending_submissions';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the function description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_admin_pending_submissions_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions for the widget.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'How many submissions are pending grading?',
+            'Show ungraded submissions across courses.',
+        ];
+    }
 
+    /**
+     * Returns the function parameters schema.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'course_id' => [
+                    'type' => 'integer',
+                    'description' => get_string('function_admin_pending_submissions_param_course_id', 'local_campusai'),
+                ],
+                'limit' => [
+                    'type' => 'integer',
+                    'description' => get_string('function_admin_pending_submissions_param_limit', 'local_campusai'),
+                    'default' => 50,
+                ],
+            ],
+            'required' => [],
+        ];
+    }
 
-namespace local_campusai\functions\admin; class pending_submissions extends base_admin { public function get_definition(): array { return [ 'name' => 'get_pending_submissions_overview', 'description' => 'Get an overview of assignments with the most unsubmitted work across all courses.', 'parameters' => [ 'type' => 'object', 'properties' => [ 'limit' => [ 'type' => 'integer', 'description' => 'Max assignments to return (default 10).', ], ], ], ]; } public function execute(array $arguments): array { global $DB; $limit = (int)($arguments['limit'] ?? 10); $limit = max(1, min(50, $limit)); $sql = "SELECT a.id, a.name, c.fullname AS course,
-                       COUNT(DISTINCT ra.userid) AS total_students,
-                       COUNT(DISTINCT sub.userid) AS submitted
-                FROM {assign} a
-                JOIN {course} c ON c.id = a.course
-                JOIN {context} ctx ON ctx.instanceid = c.id AND ctx.contextlevel = 50
-                JOIN {role_assignments} ra ON ra.contextid = ctx.id AND ra.roleid = 5
-                LEFT JOIN {assign_submission} sub ON sub.assignment = a.id AND sub.userid = ra.userid AND sub.status = 'submitted'
-                WHERE c.id > 1 AND a.duedate > 0
-                GROUP BY a.id, a.name, c.fullname
-                ORDER BY (COUNT(DISTINCT ra.userid) - COUNT(DISTINCT sub.userid)) DESC"; $results = $DB->get_records_sql($sql, [], 0, $limit); $assignments = []; foreach ($results as $r) { if ($r->submitted >= $r->total_students) { continue; } $assignments[] = [ 'course' => $r->course, 'assignment' => $r->name, 'total_students' => (int)$r->total_students, 'submitted' => (int)$r->submitted, 'not_submitted' => (int)($r->total_students - $r->submitted), ]; } return ['assignments' => $assignments]; } } 
+    /**
+     * Executes the function.
+     *
+     * @param int $userid User ID.
+     * @param array $args Arguments from the LLM.
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        global $DB;
+
+        if (!has_capability('local/campusai:manage', \context_system::instance(), $userid)) {
+            return get_string('function_admin_pending_submissions_permission', 'local_campusai');
+        }
+
+        $limit = isset($args['limit']) ? (int) $args['limit'] : 50;
+        $limit = min(max($limit, 1), 200);
+
+        $params = [];
+        $where = "s.status = 'submitted' AND g.grade IS NULL";
+
+        if (isset($args['course_id']) && (int) $args['course_id'] > 0) {
+            $where .= " AND a.course = :courseid";
+            $params['courseid'] = (int) $args['course_id'];
+        }
+
+        $sql = "SELECT a.name AS assignment, c.fullname AS course, COUNT(s.id) AS pending
+                  FROM {assign_submission} s
+                  JOIN {assign} a ON a.id = s.assignment
+                  JOIN {course} c ON c.id = a.course
+                  JOIN {user} u ON u.id = s.userid
+             LEFT JOIN {assign_grades} g ON g.assignment = s.assignment AND g.userid = s.userid
+                 WHERE {$where}
+              GROUP BY a.id, a.name, c.fullname
+              ORDER BY pending DESC";
+
+        $records = $DB->get_records_sql($sql, $params, 0, $limit);
+
+        if (empty($records)) {
+            return get_string('function_admin_pending_submissions_empty', 'local_campusai');
+        }
+
+        $lines = [];
+        foreach ($records as $record) {
+            $lines[] = get_string('function_admin_pending_submissions_item', 'local_campusai', (object) [
+                'course' => $record->course,
+                'assignment' => $record->assignment,
+                'pending' => $record->pending,
+            ]);
+        }
+
+        return implode("\n", $lines);
+    }
+}

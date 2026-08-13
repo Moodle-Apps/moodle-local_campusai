@@ -14,19 +14,129 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions\admin;
+
 /**
+ * Storage usage function.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class storage_usage extends base_admin {
+    /**
+     * Returns the function name.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'admin_storage_usage';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the function description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_admin_storage_usage_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions for the widget.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'How much storage is being used?',
+            'Which courses use the most storage?',
+        ];
+    }
 
+    /**
+     * Returns the function parameters schema.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'course_id' => [
+                    'type' => 'integer',
+                    'description' => get_string('function_admin_storage_usage_param_course_id', 'local_campusai'),
+                ],
+                'limit' => [
+                    'type' => 'integer',
+                    'description' => get_string('function_admin_storage_usage_param_limit', 'local_campusai'),
+                    'default' => 20,
+                ],
+            ],
+            'required' => [],
+        ];
+    }
 
-namespace local_campusai\functions\admin; defined('MOODLE_INTERNAL') || die(); class storage_usage extends base_admin { public function get_definition(): array { return [ 'name' => 'get_storage_usage', 'description' => 'Get estimated storage usage and top largest files in the system.', 'parameters' => ['type' => 'object', 'properties' => new \stdClass()], ]; } public function execute(array $arguments): array { global $CFG, $DB; $totalsize = $DB->get_field_sql("SELECT SUM(filesize) FROM {files} WHERE filesize > 0"); $totalfiles = $DB->count_records_select('files', 'filesize > 0'); $topfiles = $DB->get_records_select( 'files', 'filesize > 0', [], 'filesize DESC', 'filename, filesize, component, filearea, timemodified', 0, 10 ); $top = []; foreach ($topfiles as $file) { $top[] = [ 'filename' => $file->filename, 'size_mb' => round($file->filesize / (1024 * 1024), 2), 'component' => $file->component, 'area' => $file->filearea, ]; } $sql = "SELECT component, SUM(filesize) AS total
-                  FROM {files}
-                 WHERE filesize > 0
-              GROUP BY component
-              ORDER BY total DESC LIMIT 10"; $bycomponent = $DB->get_records_sql($sql); $components = []; foreach ($bycomponent as $comp) { $components[] = [ 'component' => $comp->component, 'size_mb' => round($comp->total / (1024 * 1024), 2), ]; } return [ 'total_size_gb' => round(($totalsize ?: 0) / (1024 * 1024 * 1024), 2), 'total_files' => (int)$totalfiles, 'top_files' => $top, 'by_component' => $components, ]; } } 
+    /**
+     * Executes the function.
+     *
+     * @param int $userid User ID.
+     * @param array $args Arguments from the LLM.
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        global $DB;
+
+        if (!has_capability('local/campusai:manage', \context_system::instance(), $userid)) {
+            return get_string('function_admin_storage_usage_permission', 'local_campusai');
+        }
+
+        if (isset($args['course_id']) && (int) $args['course_id'] > 0) {
+            $courseid = (int) $args['course_id'];
+            $course = $DB->get_record('course', ['id' => $courseid], 'id, fullname');
+            if (!$course) {
+                return get_string('function_admin_storage_usage_course_not_found', 'local_campusai');
+            }
+            $bytes = (int) $DB->get_field_sql(
+                "SELECT SUM(f.filesize) FROM {files} f WHERE f.contextid IN (
+                    SELECT id FROM {context} WHERE instanceid = :courseid AND contextlevel = :courselevel
+                )",
+                ['courseid' => $courseid, 'courselevel' => CONTEXT_COURSE]
+            );
+            $size = display_size($bytes);
+            return get_string('function_admin_storage_usage_course_result', 'local_campusai', (object) [
+                'fullname' => $course->fullname,
+                'size' => $size,
+            ]);
+        }
+
+        $limit = isset($args['limit']) ? (int) $args['limit'] : 20;
+        $limit = min(max($limit, 1), 100);
+
+        $totalbytes = (int) $DB->get_field_sql("SELECT SUM(filesize) FROM {files}");
+        $total = display_size($totalbytes);
+
+        $sql = "SELECT c.id, c.fullname, SUM(f.filesize) AS bytes
+                  FROM {course} c
+                  JOIN {context} ctx ON ctx.instanceid = c.id AND ctx.contextlevel = :courselevel
+                  JOIN {files} f ON f.contextid = ctx.id
+                 WHERE c.id <> :siteid
+              GROUP BY c.id, c.fullname
+              ORDER BY bytes DESC";
+
+        $records = $DB->get_records_sql($sql, ['courselevel' => CONTEXT_COURSE, 'siteid' => SITEID], 0, $limit);
+
+        $lines = [get_string('function_admin_storage_usage_total', 'local_campusai', (object) ['total' => $total])];
+        if (!empty($records)) {
+            foreach ($records as $record) {
+                $size = display_size((int) $record->bytes);
+                $lines[] = get_string('function_admin_storage_usage_item', 'local_campusai', (object) [
+                    'fullname' => $record->fullname,
+                    'size' => $size,
+                ]);
+            }
+        }
+
+        return implode("\n", $lines);
+    }
+}

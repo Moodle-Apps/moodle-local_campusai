@@ -14,15 +14,114 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions\admin;
+
 /**
+ * Courses without recent activity function.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class empty_courses extends base_admin {
+    /**
+     * Returns the function name.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'admin_empty_courses';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the function description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_admin_empty_courses_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions for the widget.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'Which courses have no recent activity?',
+            'Show inactive courses.',
+        ];
+    }
 
+    /**
+     * Returns the function parameters schema.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'days' => [
+                    'type' => 'integer',
+                    'description' => get_string('function_admin_empty_courses_param_days', 'local_campusai'),
+                    'default' => 30,
+                ],
+                'limit' => [
+                    'type' => 'integer',
+                    'description' => get_string('param_limit', 'local_campusai'),
+                    'default' => 50,
+                ],
+            ],
+            'required' => [],
+        ];
+    }
 
-namespace local_campusai\functions\admin; defined('MOODLE_INTERNAL') || die(); class empty_courses extends base_admin { public function get_definition(): array { return [ 'name' => 'get_empty_courses', 'description' => 'Get courses with no students, no activities, or both.', 'parameters' => [ 'type' => 'object', 'properties' => [ 'type' => [ 'type' => 'string', 'description' => 'Filter: no_students, no_content, or both (default both).', ], ], ], ]; } public function execute(array $arguments): array { global $DB; $filter = $arguments['type'] ?? 'both'; $courses = $DB->get_records_select('course', 'id > 1', [], 'fullname ASC', 'id, fullname, shortname'); $nostudents = []; $nocontent = []; foreach ($courses as $course) { $context = \context_course::instance($course->id); $studentcount = count_enrolled_users($context, 5); $modinfo = get_fast_modinfo($course->id); $cms = $modinfo->get_cms(); $activitycount = count($cms); if ($studentcount === 0 && ($filter === 'no_students' || $filter === 'both')) { $nostudents[] = [ 'id' => (int)$course->id, 'name' => $course->fullname, 'activities' => $activitycount, ]; } if ($activitycount === 0 && ($filter === 'no_content' || $filter === 'both')) { $nocontent[] = [ 'id' => (int)$course->id, 'name' => $course->fullname, 'students' => $studentcount, ]; } } $result = []; if ($filter === 'no_students' || $filter === 'both') { $result['no_students'] = $nostudents; } if ($filter === 'no_content' || $filter === 'both') { $result['no_content'] = $nocontent; } return $result; } } 
+    /**
+     * Executes the function.
+     *
+     * @param int $userid User ID.
+     * @param array $args Arguments from the LLM.
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        global $DB;
+
+        if (!has_capability('local/campusai:manage', \context_system::instance(), $userid)) {
+            return get_string('function_admin_empty_courses_permission', 'local_campusai');
+        }
+
+        $days = isset($args['days']) ? (int) $args['days'] : 30;
+        $days = max($days, 1);
+        $limit = isset($args['limit']) ? (int) $args['limit'] : 50;
+        $limit = min(max($limit, 1), 200);
+
+        $threshold = time() - ($days * DAYSECS);
+
+        $sql = "SELECT c.id, c.fullname, c.timemodified
+                  FROM {course} c
+                 WHERE c.id <> :siteid
+                   AND (c.timemodified < :threshold OR c.timemodified IS NULL)
+              ORDER BY c.timemodified ASC";
+
+        $records = $DB->get_records_sql($sql, ['siteid' => SITEID, 'threshold' => $threshold], 0, $limit);
+
+        if (empty($records)) {
+            return get_string('function_admin_empty_courses_empty', 'local_campusai', (object) ['days' => $days]);
+        }
+
+        $lines = [];
+        foreach ($records as $record) {
+            $last = $record->timemodified > 0
+                ? userdate($record->timemodified, '%d/%m/%Y')
+                : get_string('status_never', 'local_campusai');
+            $lines[] = get_string('function_admin_empty_courses_item', 'local_campusai', (object) [
+                'fullname' => $record->fullname,
+                'last' => $last,
+            ]);
+        }
+
+        return implode("\n", $lines);
+    }
+}

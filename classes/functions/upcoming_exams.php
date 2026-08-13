@@ -14,15 +14,107 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions;
+
 /**
+ * upcoming_exams function.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class upcoming_exams extends base_function {
+    /**
+     * Returns the identifier.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'upcoming_exams';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the human-readable description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_upcoming_exams_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'What exams are coming up?',
+            'Show my upcoming quizzes.',
+        ];
+    }
 
+    /**
+     * Returns the JSON schema parameters.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'days' => [
+                    'type' => 'integer',
+                    'description' => get_string('param_days', 'local_campusai'),
+                    'default' => 30,
+                ],
+            ],
+        ];
+    }
 
- namespace local_campusai\functions; defined('MOODLE_INTERNAL') || die(); class upcoming_exams extends base_function { public function get_definition(): array { return [ 'name' => 'get_upcoming_exams', 'description' => 'Get upcoming exams, tests, and quizzes for the student in the next 30 days.', 'parameters' => [ 'type' => 'object', 'properties' => new \stdClass(), ], ]; } public function execute(array $arguments): array { global $DB; $now = time(); $future = $now + (30 * DAYSECS); $courses = enrol_get_users_courses($this->userid); $courseids = array_keys($courses); if (empty($courseids)) { return ['exams' => [], 'message' => 'You are not enrolled in any courses.']; } $exams = []; foreach ($courses as $course) { $modinfo = get_fast_modinfo($course->id, $this->userid); $cms = $modinfo->get_cms(); foreach ($cms as $cm) { if ($cm->modname !== 'quiz') { continue; } if (!$cm->visible) { continue; } $quiz = $DB->get_record('quiz', ['id' => $cm->instance], 'timeopen, timeclose, name', IGNORE_MISSING); if (!$quiz) { continue; } $examtime = $quiz->timeopen > 0 ? $quiz->timeopen : $quiz->timeclose; if ($examtime > 0 && $examtime >= $now && $examtime <= $future) { $exams[] = [ 'course' => $course->fullname, 'exam' => $quiz->name, 'date' => $this->format_date($examtime), 'timestamp' => $examtime, ]; } } } list($insql, $inparams) = $DB->get_in_or_equal($courseids); $params = array_merge([$now, $future], $inparams); $events = $DB->get_records_select( 'event', "timestart >= ? AND timestart <= ? AND courseid $insql AND (eventtype = 'exam' OR eventtype = 'site')", $params, 'timestart ASC', 'name, timestart, courseid, description', 0, 20 ); foreach ($events as $event) { $exams[] = [ 'course' => $courses[$event->courseid]->fullname ?? 'General', 'exam' => $event->name, 'date' => $this->format_date($event->timestart), 'timestamp' => $event->timestart, ]; } $seen = []; $unique = []; foreach ($exams as $exam) { $key = $exam['exam'] . '|' . $exam['timestamp']; if (!isset($seen[$key])) { $seen[$key] = true; $unique[] = $exam; } } usort($unique, function($a, $b) { return $a['timestamp'] <=> $b['timestamp']; }); return ['exams' => $unique]; } } 
+    /**
+     * Executes the function and returns a plain text result.
+     * @param int $userid
+     * @param array $args
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        global $DB;
+
+        $days = $args['days'] ?? 30;
+        $now = time();
+        $end = $now + ($days * DAYSECS);
+
+        $courses = enrol_get_users_courses($userid, true, 'id');
+        if (empty($courses)) {
+            return get_string('error_not_enrolled', 'local_campusai');
+        }
+
+        $courseids = array_keys($courses);
+        [$insql, $params] = $DB->get_in_or_equal($courseids, SQL_PARAMS_NAMED);
+        $params['now'] = $now;
+        $params['end'] = $end;
+        $params['quizmodule'] = $DB->get_field('modules', 'id', ['name' => 'quiz']);
+
+        $sql = "SELECT q.id, q.name, q.timeopen, q.timeclose, c.fullname
+                  FROM {quiz} q
+                  JOIN {course_modules} cm ON cm.instance = q.id AND cm.module = :quizmodule
+                  JOIN {course} c ON c.id = cm.course
+                 WHERE cm.course $insql AND q.timeopen >= :now AND q.timeopen <= :end
+              ORDER BY q.timeopen ASC";
+
+        $records = $DB->get_records_sql($sql, $params, 0, 20);
+
+        if (empty($records)) {
+            return get_string('function_upcoming_exams_empty', 'local_campusai');
+        }
+
+        $lines = [];
+        foreach ($records as $r) {
+            $date = userdate($r->timeopen, get_string('strftimedatetime', 'langconfig'));
+            $lines[] = '- **' . $r->name . '** (' . $r->fullname . ') — ' . $date;
+        }
+
+        return implode("\n", $lines);
+    }
+}

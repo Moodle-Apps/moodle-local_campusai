@@ -14,20 +14,99 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions;
+
 /**
+ * feedback function.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class feedback extends base_function {
+    /**
+     * Returns the identifier.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'feedback';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the human-readable description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_feedback_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'Show feedback on my assignments.',
+            'What feedback have I received?',
+        ];
+    }
 
+    /**
+     * Returns the JSON schema parameters.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'limit' => [
+                    'type' => 'integer',
+                    'description' => get_string('function_feedback_param_limit', 'local_campusai'),
+                    'default' => 10,
+                ],
+            ],
+        ];
+    }
 
- namespace local_campusai\functions; defined('MOODLE_INTERNAL') || die(); class feedback extends base_function { public function get_definition(): array { return [ 'name' => 'get_feedback', 'description' => 'Get teacher feedback and comments on your graded assignments. Optionally filter by course.', 'parameters' => [ 'type' => 'object', 'properties' => [ 'course_id' => [ 'type' => 'integer', 'description' => 'Optional course ID to filter feedback.', ], ], ], ]; } public function execute(array $arguments): array { global $DB; $courseid = $arguments['course_id'] ?? null; $sql = "SELECT gg.id, gg.finalgrade, gg.timemodified, gi.courseid, gi.itemname, gi.itemtype,
-                       c.fullname AS coursename
-                  FROM {grade_grades} gg
-                  JOIN {grade_items} gi ON gg.itemid = gi.id
-                  JOIN {course} c ON gi.courseid = c.id
-                 WHERE gg.userid = ? AND gg.finalgrade IS NOT NULL"; $params = [$this->userid]; if ($courseid) { $sql .= " AND gi.courseid = ?"; $params[] = $courseid; } $sql .= " ORDER BY gg.timemodified DESC LIMIT 20"; $grades = $DB->get_records_sql($sql, $params); $result = []; foreach ($grades as $grade) { $feedback = ''; if ($grade->itemtype === 'mod') { $feedbackrec = $DB->get_record('assignfeedback_comments', ['grade' => $grade->id], 'commenttext', IGNORE_MISSING); if ($feedbackrec && !empty($feedbackrec->commenttext)) { $feedback = strip_tags($feedbackrec->commenttext); } } if (!empty($feedback) || $grade->finalgrade !== null) { $result[] = [ 'course' => $grade->coursename, 'assignment' => $grade->itemname ?: 'N/A', 'grade' => round((float)$grade->finalgrade, 1), 'feedback' => $feedback ?: 'No written feedback provided.', 'date' => $this->format_date($grade->timemodified), ]; } } return ['feedback' => $result]; } } 
+    /**
+     * Executes the function and returns a plain text result.
+     * @param int $userid
+     * @param array $args
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        global $DB;
+
+        $limit = $args['limit'] ?? 10;
+
+        $sql = "SELECT g.id, g.grade, g.feedback, g.timemodified, a.name AS assignmentname, c.fullname
+                  FROM {assign_grades} g
+                  JOIN {assign} a ON a.id = g.assignment
+                  JOIN {course} c ON c.id = a.course
+                  JOIN {course_modules} cm ON cm.instance = a.id AND cm.module = :assignmodule
+                 WHERE g.userid = :userid AND g.feedback IS NOT NULL AND g.feedback <> ''
+              ORDER BY g.timemodified DESC";
+
+        $records = $DB->get_records_sql($sql, [
+            'userid' => $userid,
+            'assignmodule' => $DB->get_field('modules', 'id', ['name' => 'assign']),
+        ], 0, $limit);
+
+        if (empty($records)) {
+            return get_string('function_feedback_empty', 'local_campusai');
+        }
+
+        $lines = [];
+        foreach ($records as $r) {
+            $date = userdate($r->timemodified, get_string('strftimedate', 'langconfig'));
+            $lines[] = '- **' . $r->assignmentname . '** (' . $r->fullname . ') — ' . $date . ': ' .
+                shorten_text(strip_tags($r->feedback), 120);
+        }
+
+        return implode("\n", $lines);
+    }
+}

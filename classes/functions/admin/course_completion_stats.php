@@ -14,28 +14,103 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions\admin;
+
 /**
+ * Course completion statistics function.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class course_completion_stats extends base_admin {
+    /**
+     * Returns the function name.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'admin_course_completion_stats';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the function description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_admin_course_completion_stats_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions for the widget.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'What are the course completion rates?',
+            'Show how many users completed courses.',
+        ];
+    }
 
+    /**
+     * Returns the function parameters schema.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'course_id' => [
+                    'type' => 'integer',
+                    'description' => get_string('function_admin_course_completion_stats_param_course_id', 'local_campusai'),
+                ],
+            ],
+            'required' => [],
+        ];
+    }
 
-namespace local_campusai\functions\admin; defined('MOODLE_INTERNAL') || die(); class course_completion_stats extends base_admin { public function get_definition(): array { return [ 'name' => 'get_course_completion_stats', 'description' => 'Get course completion rates across the campus (top N courses).', 'parameters' => [ 'type' => 'object', 'properties' => [ 'limit' => ['type' => 'integer', 'description' => 'Max courses to return (default 20).'], ], ], ]; } public function execute(array $arguments): array { global $DB; $limit = (int)($arguments['limit'] ?? 20); $limit = max(1, min($limit, 100)); $sql = "SELECT c.id, c.fullname,
-                       (SELECT COUNT(DISTINCT ue.userid)
-                          FROM {enrol} e
-                          JOIN {user_enrolments} ue ON ue.enrolid = e.id
-                         WHERE e.courseid = c.id) AS enrolled,
-                       (SELECT COUNT(DISTINCT cc.userid)
-                          FROM {course_completions} cc
-                         WHERE cc.course = c.id AND cc.timecompleted IS NOT NULL) AS completed
-                  FROM {course} c
-                 WHERE c.id > 1
-                   AND EXISTS (SELECT 1 FROM {enrol} e2
-                          JOIN {user_enrolments} ue2 ON ue2.enrolid = e2.id
-                         WHERE e2.courseid = c.id)
-              ORDER BY enrolled DESC"; $courses = $DB->get_records_sql($sql, [], 0, $limit); $result = []; foreach ($courses as $course) { $rate = $course->enrolled > 0 ? round(($course->completed / $course->enrolled) * 100) : 0; $result[] = [ 'course' => $course->fullname, 'enrolled' => (int)$course->enrolled, 'completed' => (int)$course->completed, 'completion_rate' => $rate . '%', ]; } return ['courses' => $result]; } } 
+    /**
+     * Executes the function.
+     *
+     * @param int $userid User ID.
+     * @param array $args Arguments from the LLM.
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        global $DB;
+
+        if (!has_capability('local/campusai:manage', \context_system::instance(), $userid)) {
+            return get_string('function_admin_course_completion_stats_permission', 'local_campusai');
+        }
+
+        $courseid = isset($args['course_id']) ? (int) $args['course_id'] : 0;
+
+        $sql = "SELECT COUNT(*) AS total, SUM(CASE WHEN timecompleted > 0 THEN 1 ELSE 0 END) AS completed
+                  FROM {course_completions}";
+        $params = [];
+
+        if ($courseid > 0) {
+            $sql .= " WHERE course = :courseid";
+            $params['courseid'] = $courseid;
+        }
+
+        $record = $DB->get_record_sql($sql, $params);
+
+        if (!$record || (int) $record->total === 0) {
+            return get_string('function_admin_course_completion_stats_empty', 'local_campusai');
+        }
+
+        $total = (int) $record->total;
+        $completed = (int) $record->completed;
+        $rate = round(($completed / $total) * 100, 1);
+
+        return get_string('function_admin_course_completion_stats_result', 'local_campusai', (object) [
+            'total' => $total,
+            'completed' => $completed,
+            'rate' => $rate,
+        ]);
+    }
+}

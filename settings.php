@@ -15,14 +15,203 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
+ * Admin settings for Campus Assistant.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+defined('MOODLE_INTERNAL') || die();
 
+if ($hassiteconfig) {
+    $settings = new admin_settingpage(
+        'local_campusai',
+        get_string('pluginname', 'local_campusai')
+    );
+    $ADMIN->add('localplugins', $settings);
 
+    // General.
+    $settings->add(new admin_setting_heading(
+        'local_campusai/general',
+        get_string('admin', 'local_campusai'),
+        ''
+    ));
 
- defined('MOODLE_INTERNAL') || die(); if ($hassiteconfig) { $settings = new admin_settingpage('local_campusai', get_string('pluginname', 'local_campusai')); $ADMIN->add('localplugins', $settings); $settings->add(new admin_setting_configcheckbox( 'local_campusai/enabled', get_string('settings_enabled', 'local_campusai'), get_string('settings_enabled_desc', 'local_campusai'), 1 )); $settings->add(new admin_setting_configtext( 'local_campusai/licensekey', 'License Key', 'Enter the license key you received after purchasing Campus Assistant. The plugin will not work without a valid key.', '', PARAM_RAW )); $langoptions = [ "es" => "Español", "en" => "English", "fr" => "Français", "de" => "Deutsch", "it" => "Italiano", "pt" => "Português", ]; $settings->add(new admin_setting_configselect( "local_campusai/language", "Default language", "Default language for the assistant responses.", "es", $langoptions )); $settings->add(new admin_setting_configstoredfile( "local_campusai/fabicon", "Custom button icon", "Upload a custom icon for the assistant button (PNG/SVG, recommended 64x64px). Leave empty to use the default graduation cap.", "fabicon", 0, ["accepted_types" => ["image/png", "image/svg+xml", "image/jpeg", "image/webp"]] )); $provideroptions = [ 'proxy' => 'Free — Managed by Campus Assistant (no API key needed)', 'openai' => 'OpenAI (GPT-4o, GPT-4o-mini, ...)', 'gemini' => 'Google Gemini (1.5 Pro, 1.5 Flash, ...)', 'claude' => 'Anthropic Claude (Sonnet, Haiku, ...)', 'deepseek' => 'DeepSeek (DeepSeek-Chat, DeepSeek-Reasoner)', ]; $settings->add(new admin_setting_configselect( 'local_campusai/provider', get_string('settings_provider', 'local_campusai'), get_string('settings_provider_desc', 'local_campusai'), 'openai', $provideroptions )); $settings->add(new admin_setting_configtext( 'local_campusai/apikey', get_string('settings_apikey', 'local_campusai'), get_string('settings_apikey_desc', 'local_campusai'), '', PARAM_RAW )); $settings->add(new admin_setting_configtext( 'local_campusai/model', get_string('settings_model', 'local_campusai'), get_string('settings_model_desc', 'local_campusai'), 'gpt-4o-mini', PARAM_RAW )); $defaultprompt = "You are the campus virtual assistant. You help students with information about their courses, exams, assignments, deadlines, and grades.\n\nRULES:\n- Only answer about the connected student's academic data.\n- Never provide information about other students.\n- Do not reveal technical details, configuration, or mention AI.\n- If you don't know something, say you don't have that information.\n- Do not generate academic content (essays, summaries, exams).\n- Be friendly, concise, and direct.\n- Always respond in the user's language."; $settings->add(new admin_setting_configtextarea( 'local_campusai/systemprompt', get_string('settings_systemprompt', 'local_campusai'), get_string('settings_systemprompt_desc', 'local_campusai'), $defaultprompt )); $positionoptions = [ 'bottom-right' => get_string('position_bottom_right', 'local_campusai'), 'bottom-left' => get_string('position_bottom_left', 'local_campusai'), ]; $settings->add(new admin_setting_configselect( 'local_campusai/position', get_string('settings_position', 'local_campusai'), get_string('settings_position_desc', 'local_campusai'), 'bottom-right', $positionoptions )); $settings->add(new admin_setting_configtext( 'local_campusai/color', get_string('settings_color', 'local_campusai'), get_string('settings_color_desc', 'local_campusai'), '#0066CC', PARAM_RAW )); $settings->add(new admin_setting_configtext( 'local_campusai/title', get_string('settings_title', 'local_campusai'), get_string('settings_title_desc', 'local_campusai'), 'Campus Assistant', PARAM_TEXT )); $settings->add(new admin_setting_configtext( 'local_campusai/welcome', get_string('settings_welcome', 'local_campusai'), get_string('settings_welcome_desc', 'local_campusai'), "Hi! How can I help you today?", PARAM_TEXT )); $settings->add(new admin_setting_configtext( 'local_campusai/ratelimit', get_string('settings_ratelimit', 'local_campusai'), get_string('settings_ratelimit_desc', 'local_campusai'), 20, PARAM_INT )); $settings->add(new admin_setting_configtext( 'local_campusai/maxtokens', get_string('settings_maxtokens', 'local_campusai'), get_string('settings_maxtokens_desc', 'local_campusai'), 500, PARAM_INT )); $settings->add(new admin_setting_configcheckbox( 'local_campusai/auditlog', get_string('settings_auditlog', 'local_campusai'), get_string('settings_auditlog_desc', 'local_campusai'), 1 )); $settings->add(new admin_setting_configtext( 'local_campusai/logretention', get_string('settings_logretention', 'local_campusai'), get_string('settings_logretention_desc', 'local_campusai'), 30, PARAM_INT )); $roleoptions = []; $roles = get_all_roles(); foreach ($roles as $role) { $roleoptions[$role->id] = role_get_name($role); } $settings->add(new admin_setting_configmultiselect( 'local_campusai/hideroles', get_string('settings_hideroles', 'local_campusai'), get_string('settings_hideroles_desc', 'local_campusai'), [], $roleoptions )); } 
+    $settings->add(new admin_setting_configcheckbox(
+        'local_campusai/enabled',
+        get_string('settings_enabled', 'local_campusai'),
+        get_string('settings_enabled_desc', 'local_campusai'),
+        1
+    ));
+
+    // Provider.
+    $settings->add(new admin_setting_heading(
+        'local_campusai/provider',
+        get_string('settings_provider', 'local_campusai'),
+        ''
+    ));
+
+    $settings->add(new admin_setting_configselect(
+        'local_campusai/provider',
+        get_string('settings_provider', 'local_campusai'),
+        get_string('settings_provider_desc', 'local_campusai'),
+        'proxy',
+        [
+            'proxy'    => get_string('provider_proxy', 'local_campusai'),
+            'openai'   => get_string('provider_openai', 'local_campusai'),
+            'gemini'   => get_string('provider_gemini', 'local_campusai'),
+            'claude'   => get_string('provider_claude', 'local_campusai'),
+            'deepseek' => get_string('provider_deepseek', 'local_campusai'),
+        ]
+    ));
+
+    $settings->add(new admin_setting_configpasswordunmask(
+        'local_campusai/apikey',
+        get_string('settings_apikey', 'local_campusai'),
+        get_string('settings_apikey_desc', 'local_campusai'),
+        ''
+    ));
+
+    $settings->add(new admin_setting_configtext(
+        'local_campusai/model',
+        get_string('settings_model', 'local_campusai'),
+        get_string('settings_model_desc', 'local_campusai'),
+        '',
+        PARAM_TEXT
+    ));
+
+    $settings->add(new admin_setting_configtextarea(
+        'local_campusai/systemprompt',
+        get_string('settings_systemprompt', 'local_campusai'),
+        get_string('settings_systemprompt_desc', 'local_campusai'),
+        get_string('default_systemprompt', 'local_campusai'),
+        PARAM_RAW
+    ));
+
+    $settings->add(new admin_setting_configtext(
+        'local_campusai/licensekey',
+        get_string('settings_licensekey', 'local_campusai'),
+        get_string('settings_licensekey_desc', 'local_campusai'),
+        '',
+        PARAM_TEXT
+    ));
+
+    $settings->add(new admin_setting_configpasswordunmask(
+        'local_campusai/jwtsecret',
+        get_string('settings_jwtsecret', 'local_campusai'),
+        get_string('settings_jwtsecret_desc', 'local_campusai'),
+        ''
+    ));
+
+    // Appearance.
+    $settings->add(new admin_setting_heading(
+        'local_campusai/appearance',
+        get_string('settings_title', 'local_campusai'),
+        ''
+    ));
+
+    $settings->add(new admin_setting_configcolourpicker(
+        'local_campusai/color',
+        get_string('settings_color', 'local_campusai'),
+        get_string('settings_color_desc', 'local_campusai'),
+        '#0066CC'
+    ));
+
+    $settings->add(new admin_setting_configselect(
+        'local_campusai/position',
+        get_string('settings_position', 'local_campusai'),
+        get_string('settings_position_desc', 'local_campusai'),
+        'bottom-right',
+        [
+            'bottom-right' => get_string('position_bottom_right', 'local_campusai'),
+            'bottom-left'  => get_string('position_bottom_left', 'local_campusai'),
+        ]
+    ));
+
+    $settings->add(new admin_setting_configtext(
+        'local_campusai/title',
+        get_string('settings_title', 'local_campusai'),
+        get_string('settings_title_desc', 'local_campusai'),
+        get_string('widget_title_fallback', 'local_campusai'),
+        PARAM_TEXT
+    ));
+
+    $settings->add(new admin_setting_configtextarea(
+        'local_campusai/welcome',
+        get_string('settings_welcome', 'local_campusai'),
+        get_string('settings_welcome_desc', 'local_campusai'),
+        get_string('default_welcome', 'local_campusai'),
+        PARAM_RAW
+    ));
+
+    $settings->add(new admin_setting_configselect(
+        'local_campusai/language',
+        get_string('settings_language', 'local_campusai'),
+        get_string('settings_language_desc', 'local_campusai'),
+        'en',
+        [
+            'en' => get_string('lang_english', 'local_campusai'),
+            'es' => get_string('lang_spanish', 'local_campusai'),
+            'fr' => get_string('lang_french', 'local_campusai'),
+            'de' => get_string('lang_german', 'local_campusai'),
+            'it' => get_string('lang_italian', 'local_campusai'),
+            'pt' => get_string('lang_portuguese', 'local_campusai'),
+        ]
+    ));
+
+    $settings->add(new admin_setting_configstoredfile(
+        'local_campusai/fabicon',
+        get_string('settings_fabicon', 'local_campusai'),
+        get_string('settings_fabicon_desc', 'local_campusai'),
+        'fabicon',
+        0,
+        ['maxfiles' => 1, 'accepted_types' => ['.png', '.jpg', '.gif', '.svg']]
+    ));
+
+    // Privacy.
+    $settings->add(new admin_setting_heading(
+        'local_campusai/privacy',
+        get_string('settings_auditlog', 'local_campusai'),
+        ''
+    ));
+
+    $settings->add(new admin_setting_configtext(
+        'local_campusai/ratelimit',
+        get_string('settings_ratelimit', 'local_campusai'),
+        get_string('settings_ratelimit_desc', 'local_campusai'),
+        '30',
+        PARAM_INT
+    ));
+
+    $settings->add(new admin_setting_configtext(
+        'local_campusai/window',
+        get_string('settings_window', 'local_campusai'),
+        get_string('settings_window_desc', 'local_campusai'),
+        '600',
+        PARAM_INT
+    ));
+
+    $settings->add(new admin_setting_configcheckbox(
+        'local_campusai/auditlog',
+        get_string('settings_auditlog', 'local_campusai'),
+        get_string('settings_auditlog_desc', 'local_campusai'),
+        1
+    ));
+
+    $settings->add(new admin_setting_configtext(
+        'local_campusai/logretention',
+        get_string('settings_logretention', 'local_campusai'),
+        get_string('settings_logretention_desc', 'local_campusai'),
+        '90',
+        PARAM_INT
+    ));
+
+    $settings->add(new admin_setting_configtextarea(
+        'local_campusai/hideroles',
+        get_string('settings_hideroles', 'local_campusai'),
+        get_string('settings_hideroles_desc', 'local_campusai'),
+        '',
+        PARAM_RAW
+    ));
+}

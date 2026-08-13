@@ -14,15 +14,76 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\provider;
+
 /**
+ * DeepSeek API provider (OpenAI-compatible).
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class deepseek_provider implements provider_interface {
+    /** @var string API key. */
+    private string $apikey;
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /** @var string Unused for DeepSeek. */
+    private string $jwtsecret;
 
+    /**
+     * Constructor.
+     *
+     * @param string $apikey
+     * @param string $jwtsecret
+     */
+    public function __construct(string $apikey, string $jwtsecret) {
+        $this->apikey = $apikey;
+        $this->jwtsecret = $jwtsecret;
+    }
 
+    /**
+     * Returns the identifier.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'deepseek';
+    }
 
- namespace local_campusai\provider; defined('MOODLE_INTERNAL') || die(); class deepseek_provider extends openai_provider { public function __construct(string $apikey, string $model) { parent::__construct($apikey, $model, 'https://api.deepseek.com/v1'); } public function get_name(): string { return 'deepseek'; } } 
+    /**
+     * Sends the request to DeepSeek.
+     *
+     * @param string $systemprompt
+     * @param array $messages
+     * @param array $tools
+     * @param string $model
+     * @param int $maxtokens
+     * @return array
+     */
+    public function chat(
+        string $systemprompt,
+        array $messages,
+        array $tools,
+        string $model,
+        int $maxtokens
+    ): array {
+        $url = 'https://api.deepseek.com/v1/chat/completions';
+
+        $payload = [
+            'model'       => $model,
+            'messages'    => array_merge([['role' => 'system', 'content' => $systemprompt]], $messages),
+            'tools'       => $tools,
+            'tool_choice' => 'auto',
+            'max_tokens'  => $maxtokens,
+        ];
+
+        $curl = new \curl();
+        $curl->setHeader('Authorization: Bearer ' . $this->apikey);
+        $curl->setHeader('Content-Type: application/json');
+        $curl->setopt(['CURLOPT_TIMEOUT' => 30]);
+
+        $response = $curl->post($url, json_encode($payload));
+
+        return provider_helper::parse_openai_like($curl, $response);
+    }
+}

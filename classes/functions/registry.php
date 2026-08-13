@@ -14,15 +14,150 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions;
+
 /**
+ * Registry of all assistant functions.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class registry {
+    /**
+     * Returns all available functions.
+     *
+     * @return base_function[]
+     */
+    public static function all(): array {
+        $functions = [];
+        $functions = array_merge($functions, self::load_classes(__DIR__, 'local_campusai\functions'));
+        $functions = array_merge($functions, self::load_classes(__DIR__ . '/admin', 'local_campusai\functions\admin'));
+        $functions = array_merge($functions, self::load_classes(__DIR__ . '/teacher', 'local_campusai\functions\teacher'));
+        return $functions;
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the functions visible to a specific user.
+     *
+     * @param int $userid User ID.
+     * @return base_function[]
+     */
+    public static function for_user(int $userid): array {
+        $functions = self::load_classes(__DIR__, 'local_campusai\functions');
 
+        if (self::is_teacher($userid)) {
+            $functions = array_merge($functions, self::load_classes(__DIR__ . '/teacher', 'local_campusai\functions\teacher'));
+        }
 
+        if (self::is_admin_mode($userid)) {
+            $functions = array_merge($functions, self::load_classes(__DIR__ . '/admin', 'local_campusai\functions\admin'));
+        }
 
- namespace local_campusai\functions; defined('MOODLE_INTERNAL') || die(); class registry { protected static $studentmap = [ 'get_upcoming_exams' => upcoming_exams::class, 'get_pending_tasks' => pending_tasks::class, 'get_course_grades' => course_grades::class, 'get_deadlines' => deadlines::class, 'get_my_courses' => course_list::class, 'get_course_activities' => course_content::class, 'get_teacher_info' => teacher_info::class, 'get_forum_unread' => forum_unread::class, 'get_submission_status' => submission_status::class, 'get_course_progress' => course_progress::class, 'get_course_calendar' => course_calendar::class, 'get_feedback' => feedback::class, 'get_course_resources' => course_resources::class, 'get_announcements' => announcements::class, 'get_next_activity' => next_activity::class, 'get_study_time' => study_time::class, 'get_course_mates' => course_mates::class, 'get_late_submissions' => late_submissions::class, 'search_course_content' => search_content::class, 'get_my_overview' => my_overview::class, ]; protected static $teachermap = [ 'get_my_teaching_courses' => teacher\teaching_courses::class, 'get_students_needing_grading' => teacher\needing_grading::class, 'get_class_progress' => teacher\class_progress::class, 'get_at_risk_students' => teacher\at_risk_students::class, 'get_ungraded_submissions' => teacher\ungraded_submissions::class, 'get_student_list' => teacher\student_list::class, 'get_course_completion_overview' => teacher\course_completion_overview::class, 'get_forum_replies' => teacher\forum_questions::class, 'get_gradebook_summary' => teacher\gradebook_summary::class, 'get_overdue_assignments' => teacher\overdue_assignments::class, 'get_class_engagement' => teacher\class_engagement::class, 'get_upcoming_course_events' => teacher\upcoming_events::class, ]; protected static $adminmap = [ 'get_campus_stats' => admin\campus_stats::class, 'get_course_enrolments' => admin\course_enrolments::class, 'get_grade_stats' => admin\grade_stats::class, 'get_inactive_students' => admin\inactive_users::class, 'get_pending_submissions_overview'=> admin\pending_submissions::class, 'get_recent_activity' => admin\recent_activity::class, 'get_all_courses' => admin\course_list_admin::class, 'get_course_completion_stats' => admin\course_completion_stats::class, 'get_user_growth' => admin\user_growth::class, 'get_storage_usage' => admin\storage_usage::class, 'get_login_stats' => admin\login_stats::class, 'get_course_categories' => admin\course_categories::class, 'get_plugin_overview' => admin\plugin_overview::class, 'get_teachers_without_courses' => admin\teachers_without_courses::class, 'get_empty_courses' => admin\empty_courses::class, 'get_system_health' => admin\system_health::class, ]; public static function is_admin_user(int $userid): bool { $user = \core_user::get_user($userid); if (!$user) return false; $admins = get_admins(); foreach ($admins as $admin) { if ($admin->id == $userid) return true; } $context = \context_system::instance(); $roles = get_user_roles($context, $userid, false); foreach ($roles as $role) { if (in_array($role->shortname, ['manager', 'coursecreator', 'admin'])) { return true; } } if (has_capability('moodle/site:config', $context, $userid)) { return true; } return false; } public static function get_role_type(int $userid): string { if (self::is_admin_user($userid)) { return 'admin'; } $teachershortnames = ['teacher', 'editingteacher', 'coursecreator', 'teachers', 'noneditingteacher', 'profesor', 'docente']; $context = \context_system::instance(); $roles = get_user_roles($context, $userid, false); foreach ($roles as $role) { if (in_array($role->shortname, $teachershortnames)) { return 'teacher'; } } $courses = enrol_get_users_courses($userid); foreach ($courses as $course) { $coursecontext = \context_course::instance($course->id); $courseroles = get_user_roles($coursecontext, $userid, false); foreach ($courseroles as $role) { if (in_array($role->shortname, $teachershortnames)) { return 'teacher'; } } } return 'student'; } protected static function get_map_for_user(int $userid): array { $role = self::get_role_type($userid); switch ($role) { case 'admin': return self::$adminmap; case 'teacher': return self::$teachermap; default: return self::$studentmap; } } public static function get_definitions(int $userid, bool $freemode = false): array { $classes = self::get_map_for_user($userid); if ($freemode && !self::is_admin_user($userid)) { $role = self::get_role_type($userid); if ($role === 'teacher') { $classes = [ 'get_my_teaching_courses' => self::$teachermap['get_my_teaching_courses'], 'get_students_needing_grading' => self::$teachermap['get_students_needing_grading'], 'get_student_list' => self::$teachermap['get_student_list'], ]; } else { $classes = [ 'get_upcoming_exams' => self::$studentmap['get_upcoming_exams'], 'get_pending_tasks' => self::$studentmap['get_pending_tasks'], 'get_my_courses' => self::$studentmap['get_my_courses'], ]; } } $definitions = []; foreach ($classes as $name => $class) { if (!class_exists($class)) { continue; } $instance = new $class($userid); $def = $instance->get_definition(); $def['name'] = $name; $definitions[] = $def; } return $definitions; } public static function execute(string $name, int $userid, array $arguments, bool $freemode = false): array { $classes = self::get_map_for_user($userid); if ($freemode && !self::is_admin_user($userid)) { $role = self::get_role_type($userid); if ($role === 'teacher') { $classes = [ 'get_my_teaching_courses' => self::$teachermap['get_my_teaching_courses'], 'get_students_needing_grading' => self::$teachermap['get_students_needing_grading'], 'get_student_list' => self::$teachermap['get_student_list'], ]; } else { $classes = [ 'get_upcoming_exams' => self::$studentmap['get_upcoming_exams'], 'get_pending_tasks' => self::$studentmap['get_pending_tasks'], 'get_my_courses' => self::$studentmap['get_my_courses'], ]; } } if (!isset($classes[$name])) { throw new \moodle_exception('error_generic', 'local_campusai', '', null, 'Unknown function: ' . $name); } $class = $classes[$name]; if (!class_exists($class)) { throw new \moodle_exception('error_generic', 'local_campusai', '', null, 'Function not yet available: ' . $name); } $instance = new $class($userid); return $instance->execute($arguments); } public static function is_valid_function(string $name): bool { return isset(self::$studentmap[$name]) || isset(self::$teachermap[$name]) || isset(self::$adminmap[$name]); } public static function is_admin_mode(int $userid): bool { return self::is_admin_user($userid); } public static function get_role_label(int $userid): string { return self::get_role_type($userid); } } 
+        return $functions;
+    }
+
+    /**
+     * Checks whether the user has the manager capability.
+     *
+     * @param int $userid User ID.
+     * @return bool
+     */
+    public static function is_admin_mode(int $userid): bool {
+        return has_capability('local/campusai:manage', \context_system::instance(), $userid);
+    }
+
+    /**
+     * Returns the role type for the user.
+     *
+     * @param int $userid User ID.
+     * @return string 'student', 'teacher' or 'admin'.
+     */
+    public static function get_role_type(int $userid): string {
+        if (self::is_admin_mode($userid)) {
+            return 'admin';
+        }
+        if (self::is_teacher($userid)) {
+            return 'teacher';
+        }
+        return 'student';
+    }
+
+    /**
+     * Returns example questions available to the given user.
+     *
+     * @param int $userid User ID.
+     * @return string[]
+     */
+    public static function examples_for_user(int $userid): array {
+        $examples = [];
+        $dir = null;
+        $namespace = null;
+
+        if (self::is_admin_mode($userid)) {
+            $dir = __DIR__ . '/admin';
+            $namespace = 'local_campusai\functions\admin';
+        } else if (self::is_teacher($userid)) {
+            $dir = __DIR__ . '/teacher';
+            $namespace = 'local_campusai\functions\teacher';
+        } else {
+            $dir = __DIR__;
+            $namespace = 'local_campusai\functions';
+        }
+
+        foreach (self::load_classes($dir, $namespace) as $function) {
+            $class = get_class($function);
+            foreach ($class::examples() as $question) {
+                $examples[] = $question;
+            }
+        }
+
+        // Limit to avoid overwhelming the UI.
+        return array_slice(array_unique($examples), 0, 12);
+    }
+
+    /**
+     * Checks whether the user is a teacher in any course.
+     *
+     * @param int $userid User ID.
+     * @return bool
+     */
+    private static function is_teacher(int $userid): bool {
+        return has_capability('moodle/course:update', \context_system::instance(), $userid);
+    }
+
+    /**
+     * Loads function instances from a directory.
+     *
+     * @param string $dir Directory path.
+     * @param string $namespace Base namespace.
+     * @return base_function[]
+     */
+    private static function load_classes(string $dir, string $namespace): array {
+        $functions = [];
+        if (!is_dir($dir)) {
+            return $functions;
+        }
+
+        foreach (glob($dir . '/*.php') as $file) {
+            $basename = basename($file, '.php');
+            if (in_array($basename, ['base_function', 'base_admin', 'base_teacher', 'registry'])) {
+                continue;
+            }
+
+            $class = $namespace . '\\' . $basename;
+            if (!class_exists($class)) {
+                continue;
+            }
+
+            $reflection = new \ReflectionClass($class);
+            if ($reflection->isAbstract()) {
+                continue;
+            }
+
+            $functions[] = new $class();
+        }
+
+        return $functions;
+    }
+}

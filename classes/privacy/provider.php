@@ -14,15 +14,183 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\privacy;
+
+use core_privacy\local\metadata\collection;
+use core_privacy\local\request\approved_contextlist;
+use core_privacy\local\request\contextlist;
+use core_privacy\local\request\userlist;
+use core_privacy\local\request\writer;
+
 /**
+ * Privacy provider for Campus Assistant.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class provider implements \core_privacy\local\request\plugin\provider {
+    /**
+     * Returns metadata about the data stored by this plugin.
+     *
+     * @param collection $collection The initialised collection.
+     * @return collection The updated collection.
+     */
+    public static function get_metadata(collection $collection): collection {
+        $collection->add_database_table(
+            'local_campusai_conversation',
+            [
+                'userid' => 'privacy:metadata:conversation:userid',
+                'usermessage' => 'privacy:metadata:conversation:usermessage',
+                'assistantmessage' => 'privacy:metadata:conversation:assistantmessage',
+                'provider' => 'privacy:metadata:conversation:provider',
+                'tokensused' => 'privacy:metadata:conversation:tokensused',
+                'timecreated' => 'privacy:metadata:conversation:timecreated',
+            ],
+            'privacy:metadata:conversation'
+        );
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+        $collection->add_database_table(
+            'local_campusai_ratelimit',
+            [
+                'userid' => 'privacy:metadata:ratelimit:userid',
+                'windowstart' => 'privacy:metadata:ratelimit:windowstart',
+                'messagecount' => 'privacy:metadata:ratelimit:messagecount',
+            ],
+            'privacy:metadata:ratelimit'
+        );
 
+        return $collection;
+    }
 
+    /**
+     * Returns the system context for every user that has used the assistant.
+     *
+     * @param int $userid User ID.
+     * @return contextlist
+     */
+    public static function get_contexts_for_userid(int $userid): contextlist {
+        $contextlist = new contextlist();
 
- namespace local_campusai\privacy; use core_privacy\local\metadata\collection; use core_privacy\local\request\approved_contextlist; use core_privacy\local\request\approved_userlist; use core_privacy\local\request\contextlist; use core_privacy\local\request\helper; use core_privacy\local\request\transform; use core_privacy\local\request\writer; defined('MOODLE_INTERNAL') || die(); class provider implements \core_privacy\local\metadata\provider, \core_privacy\local\request\core_userlist_provider, \core_privacy\local\request\plugin\provider { public static function get_metadata(collection $collection): collection { $collection->add_database_table('local_campusai_conversation', [ 'userid' => 'privacy:metadata:conversation:userid', 'usermessage' => 'privacy:metadata:conversation:usermessage', 'assistantmessage' => 'privacy:metadata:conversation:assistantmessage', 'timecreated' => 'privacy:metadata:conversation:timecreated', ], 'privacy:metadata:conversation'); return $collection; } public static function get_contexts_for_userid(int $userid): contextlist { $contextlist = new contextlist(); $contextlist->add_system_context(); return $contextlist; } public static function get_users_in_context(\core_privacy\local\request\userlist $userlist) { if (!$userlist->get_context() instanceof \context_system) { return; } global $DB; $sql = "SELECT DISTINCT userid FROM {local_campusai_conversation}"; $userids = $DB->get_fieldset_sql($sql); $userlist->add_users($userids); } public static function export_user_data(approved_contextlist $contextlist) { global $DB; $userid = $contextlist->get_user()->id; $records = $DB->get_records('local_campusai_conversation', ['userid' => $userid], 'timecreated ASC'); foreach ($records as $record) { $data = (object) [ 'user_message' => $record->usermessage, 'assistant_message' => $record->assistantmessage, 'functions_called' => $record->functionscalled, 'provider' => $record->provider, 'tokens_used' => $record->tokensused, 'time' => transform::datetime($record->timecreated), ]; writer::with_context(\context_system::instance()) ->export_data(['Campus Assistant [' . $record->id . ']'], $data); } } public static function delete_data_for_all_users_in_context(\context $context) { if ($context instanceof \context_system) { global $DB; $DB->delete_records('local_campusai_conversation', []); } } public static function delete_data_for_user(approved_contextlist $contextlist) { global $DB; $userid = $contextlist->get_user()->id; $DB->delete_records('local_campusai_conversation', ['userid' => $userid]); } public static function delete_data_for_users(approved_userlist $userlist) { global $DB; $userids = $userlist->get_userids(); list($insql, $inparams) = $DB->get_in_or_equal($userids); $DB->delete_records_select('local_campusai_conversation', "userid $insql", $inparams); } } 
+        if (self::user_has_data($userid)) {
+            $contextlist->add_system_context();
+        }
+
+        return $contextlist;
+    }
+
+    /**
+     * Exports user data to the privacy API writer.
+     *
+     * @param approved_contextlist $contextlist The approved contexts.
+     * @return void
+     */
+    public static function export_user_data(approved_contextlist $contextlist): void {
+        global $DB;
+
+        $user = $contextlist->get_user();
+        foreach ($contextlist->get_contexts() as $context) {
+            if ($context->contextlevel != CONTEXT_SYSTEM) {
+                continue;
+            }
+
+            if (!has_capability('local/campusai:use', $context, $user->id)) {
+                continue;
+            }
+
+            $conversations = $DB->get_records('local_campusai_conversation', ['userid' => $user->id], 'timecreated ASC');
+            foreach ($conversations as $record) {
+                $data = (array) $record;
+                unset($data['id']);
+                writer::with_context($context)->export_data(
+                    [get_string('pluginname', 'local_campusai'), 'conversation', $record->id],
+                    (object) $data
+                );
+            }
+
+            $ratelimits = $DB->get_records('local_campusai_ratelimit', ['userid' => $user->id], 'windowstart ASC');
+            foreach ($ratelimits as $record) {
+                $data = (array) $record;
+                unset($data['id']);
+                writer::with_context($context)->export_data(
+                    [get_string('pluginname', 'local_campusai'), 'ratelimit', $record->id],
+                    (object) $data
+                );
+            }
+        }
+    }
+
+    /**
+     * Deletes all data for the user in the approved contexts.
+     *
+     * @param approved_contextlist $contextlist The approved contexts.
+     * @return void
+     */
+    public static function delete_data_for_user(approved_contextlist $contextlist): void {
+        global $DB;
+
+        $user = $contextlist->get_user();
+        foreach ($contextlist->get_contexts() as $context) {
+            if ($context->contextlevel != CONTEXT_SYSTEM) {
+                continue;
+            }
+
+            $DB->delete_records('local_campusai_conversation', ['userid' => $user->id]);
+            $DB->delete_records('local_campusai_ratelimit', ['userid' => $user->id]);
+        }
+    }
+
+    /**
+     * Deletes all data in the supplied context.
+     *
+     * @param \context $context The context to delete from.
+     * @return void
+     */
+    public static function delete_data_for_all_users_in_context(\context $context): void {
+        global $DB;
+
+        if ($context->contextlevel != CONTEXT_SYSTEM) {
+            return;
+        }
+
+        $DB->delete_records('local_campusai_conversation', []);
+        $DB->delete_records('local_campusai_ratelimit', []);
+    }
+
+    /**
+     * Returns the list of users who have data in the given context.
+     *
+     * @param \context $context The context.
+     * @return userlist
+     */
+    public static function get_users_in_context(\context $context): userlist {
+        global $DB;
+
+        $userlist = new userlist($context, 'local_campusai');
+
+        if ($context->contextlevel != CONTEXT_SYSTEM) {
+            return $userlist;
+        }
+
+        $sql = "SELECT DISTINCT userid FROM {local_campusai_conversation}
+                UNION
+                SELECT DISTINCT userid FROM {local_campusai_ratelimit}";
+        $userids = $DB->get_fieldset_sql($sql);
+        $userlist->add_users($userids);
+
+        return $userlist;
+    }
+
+    /**
+     * Checks whether the user has any stored data.
+     *
+     * @param int $userid User ID.
+     * @return bool
+     */
+    private static function user_has_data(int $userid): bool {
+        global $DB;
+
+        return $DB->record_exists('local_campusai_conversation', ['userid' => $userid])
+            || $DB->record_exists('local_campusai_ratelimit', ['userid' => $userid]);
+    }
+}

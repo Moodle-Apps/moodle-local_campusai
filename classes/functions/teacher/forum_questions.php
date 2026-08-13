@@ -14,15 +14,130 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions\teacher;
 /**
+ * Recent forum questions.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class forum_questions extends base_teacher {
+    /**
+     * Returns the identifier.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'teacher_forum_questions';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the human-readable description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_teacher_forum_questions_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'What questions have students asked in forums?',
+            'Show recent forum questions.',
+        ];
+    }
 
+    /**
+     * Returns the JSON schema parameters.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type'       => 'object',
+            'properties' => [
+                'courseid' => [
+                    'type'        => 'integer',
+                    'description' => get_string('function_teacher_forum_questions_param_courseid', 'local_campusai'),
+                ],
+                'limit' => [
+                    'type'        => 'integer',
+                    'description' => get_string('function_teacher_forum_questions_param_limit', 'local_campusai'),
+                    'default'     => 5,
+                ],
+            ],
+            'required'   => [],
+        ];
+    }
 
-namespace local_campusai\functions\teacher; defined('MOODLE_INTERNAL') || die(); class forum_questions extends base_teacher { public function get_definition(): array { return [ 'name' => 'get_forum_replies', 'description' => 'Get forum discussion threads that have no reply from you (the teacher) in a course.', 'parameters' => [ 'type' => 'object', 'properties' => [ 'course_id' => ['type' => 'integer', 'description' => 'The course ID.'], ], 'required' => ['course_id'], ], ]; } public function execute(array $arguments): array { global $DB; $courseid = (int)($arguments['course_id'] ?? 0); if (!$courseid || !$this->is_teacher_in_course($courseid)) { return ['error' => 'Invalid course or you are not a teacher in this course.']; } $course = get_course($courseid); $modinfo = get_fast_modinfo($courseid, $this->userid); $forums = $modinfo->get_instances_of('forum'); $unanswered = []; foreach ($forums as $cm) { if (!$cm->visible) continue; $discussions = $DB->get_records('forum_discussions', ['forum' => $cm->instance], 'timemodified DESC', 'id, name, userid, timemodified', 0, 50); foreach ($discussions as $disc) { $teacherreply = $DB->record_exists('forum_posts', [ 'discussion' => $disc->id, 'userid' => $this->userid, ]); if (!$teacherreply) { $author = \core_user::get_user($disc->userid, 'firstname, lastname'); $unanswered[] = [ 'forum' => $cm->name, 'discussion' => $disc->name, 'author' => $author ? trim($author->firstname . ' ' . $author->lastname) : 'Unknown', 'date' => $this->format_date($disc->timemodified), 'url' => (string)(new \moodle_url('/mod/forum/discuss.php', ['d' => $disc->id])), ]; } } } return ['course' => $course->fullname, 'unanswered_threads' => $unanswered, 'count' => count($unanswered)]; } } 
+    /**
+     * Executes the function and returns a plain text result.
+     * @param int $userid
+     * @param array $args
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        global $DB;
+
+        $courseid = !empty($args['courseid']) ? (int) $args['courseid'] : 0;
+        $limit = !empty($args['limit']) ? (int) $args['limit'] : 5;
+
+        if ($courseid) {
+            $course = $DB->get_record('course', ['id' => $courseid]);
+            if (!$course || !has_capability('moodle/course:update', \context_course::instance($courseid), $userid)) {
+                return get_string('function_teacher_forum_questions_not_teacher', 'local_campusai');
+            }
+            $courseids = [$courseid];
+        } else {
+            $courses = get_user_capability_course('moodle/course:update', $userid);
+            if (!$courses) {
+                return get_string('function_teacher_forum_questions_no_teaching', 'local_campusai');
+            }
+            $courseids = array_map(function ($c) {
+                return (int) $c->id;
+            }, $courses);
+        }
+
+        [$insql, $inparams] = $DB->get_in_or_equal($courseids, SQL_PARAMS_NAMED, 'c');
+
+        $likesubject = $DB->sql_like('p.subject', ':q1', false);
+        $likemessage = $DB->sql_like('p.message', ':q2', false);
+
+        $sql = "SELECT p.id, p.subject, p.message, p.created,
+                       f.name AS forumname, c.shortname
+                  FROM {forum_posts} p
+                  JOIN {forum_discussions} d ON d.id = p.discussion
+                  JOIN {forum} f ON f.id = d.forum
+                  JOIN {course} c ON c.id = f.course
+                 WHERE f.course $insql
+                   AND ($likesubject OR $likemessage)
+                 ORDER BY p.created DESC";
+
+        $params = array_merge($inparams, ['q1' => '%?%', 'q2' => '%?%']);
+        $posts = $DB->get_records_sql($sql, $params, 0, $limit);
+
+        if (!$posts) {
+            return get_string('function_teacher_forum_questions_empty', 'local_campusai');
+        }
+
+        $lines = [];
+        foreach ($posts as $post) {
+            $subject = strip_tags(trim($post->subject ?: get_string('status_no_subject', 'local_campusai')));
+            $date = \userdate($post->created, '%d/%m/%Y');
+            $lines[] = get_string('function_teacher_forum_questions_item', 'local_campusai', (object) [
+                'subject' => $subject,
+                'forumname' => $post->forumname,
+                'shortname' => $post->shortname,
+                'date' => $date,
+            ]);
+        }
+
+        return implode("\n", $lines);
+    }
+}

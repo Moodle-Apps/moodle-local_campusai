@@ -15,14 +15,43 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
+ * Capability definitions for Campus Assistant.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+defined('MOODLE_INTERNAL') || die();
 
-
-
- defined('MOODLE_INTERNAL') || die(); $capabilities = [ 'local/campusai:use' => [ 'captype' => 'read', 'contextlevel' => CONTEXT_SYSTEM, 'archetypes' => [ 'student' => CAP_ALLOW, 'teacher' => CAP_ALLOW, 'editingteacher' => CAP_ALLOW, 'manager' => CAP_ALLOW, ], ], 'local/campusai:manage' => [ 'captype' => 'write', 'contextlevel' => CONTEXT_SYSTEM, 'archetypes' => [ 'manager' => CAP_ALLOW, ], ], ]; 
+$capabilities = [
+    'local/campusai:use' => [
+        'riskbitmask'   => RISK_PERSONAL,
+        'captype'       => 'read',
+        'contextlevel'  => CONTEXT_SYSTEM,
+        'archetypes'    => [
+            'student'    => CAP_ALLOW,
+            'teacher'    => CAP_ALLOW,
+            'manager'    => CAP_ALLOW,
+        ],
+        'clonepermissionsfrom' => '',
+    ],
+    'local/campusai:manage' => [
+        'riskbitmask'   => RISK_PERSONAL | RISK_CONFIG,
+        'captype'       => 'write',
+        'contextlevel'  => CONTEXT_SYSTEM,
+        'archetypes'    => [
+            'manager'    => CAP_ALLOW,
+        ],
+        'clonepermissionsfrom' => '',
+    ],
+    'local/campusai:viewauditlog' => [
+        'riskbitmask'   => RISK_PERSONAL,
+        'captype'       => 'read',
+        'contextlevel'  => CONTEXT_SYSTEM,
+        'archetypes'    => [
+            'manager'    => CAP_ALLOW,
+        ],
+        'clonepermissionsfrom' => '',
+    ],
+];

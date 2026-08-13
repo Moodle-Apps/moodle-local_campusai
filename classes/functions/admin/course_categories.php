@@ -14,20 +14,97 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions\admin;
+
 /**
+ * Course categories listing function.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class course_categories extends base_admin {
+    /**
+     * Returns the function name.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'admin_course_categories';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the function description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_admin_course_categories_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions for the widget.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'What course categories exist?',
+            'Show the category structure.',
+        ];
+    }
 
+    /**
+     * Returns the function parameters schema.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'parent_id' => [
+                    'type' => 'integer',
+                    'description' => get_string('function_admin_course_categories_param_parent_id', 'local_campusai'),
+                ],
+            ],
+            'required' => [],
+        ];
+    }
 
-namespace local_campusai\functions\admin; defined('MOODLE_INTERNAL') || die(); class course_categories extends base_admin { public function get_definition(): array { return [ 'name' => 'get_course_categories', 'description' => 'Get the course category tree with total courses and enrolments per category.', 'parameters' => ['type' => 'object', 'properties' => new \stdClass()], ]; } public function execute(array $arguments): array { global $DB; $categories = $DB->get_records('course_categories', [], 'sortorder ASC', 'id, name, parent, description'); $coursecounts = $DB->get_records_sql( "SELECT category, COUNT(*) AS cnt FROM {course} WHERE id > 1 GROUP BY category" ); $enrolcounts = $DB->get_records_sql( "SELECT c.category, COUNT(ue.id) AS cnt
-               FROM {course} c
-               JOIN {enrol} e ON e.courseid = c.id
-               JOIN {user_enrolments} ue ON ue.enrolid = e.id
-              WHERE c.id > 1
-           GROUP BY c.category" ); $result = []; foreach ($categories as $cat) { $result[] = [ 'id' => (int)$cat->id, 'name' => $cat->name, 'parent' => (int)$cat->parent, 'courses' => (int)($coursecounts[$cat->id]->cnt ?? 0), 'enrolments' => (int)($enrolcounts[$cat->id]->cnt ?? 0), ]; } return ['categories' => $result]; } } 
+    /**
+     * Executes the function.
+     *
+     * @param int $userid User ID.
+     * @param array $args Arguments from the LLM.
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        global $DB;
+
+        if (!has_capability('local/campusai:manage', \context_system::instance(), $userid)) {
+            return get_string('function_admin_course_categories_permission', 'local_campusai');
+        }
+
+        $parentid = isset($args['parent_id']) ? (int) $args['parent_id'] : 0;
+
+        $params = ['parent' => $parentid];
+        $categories = $DB->get_records('course_categories', $params, 'name ASC', 'id, name, coursecount');
+
+        if (empty($categories)) {
+            return get_string('function_admin_course_categories_empty', 'local_campusai');
+        }
+
+        $lines = [];
+        foreach ($categories as $category) {
+            $name = $category->name;
+            $count = (int) $category->coursecount;
+            $lines[] = get_string('function_admin_course_categories_item', 'local_campusai', (object) [
+                'name' => $name,
+                'count' => $count,
+            ]);
+        }
+
+        return implode("\n", $lines);
+    }
+}

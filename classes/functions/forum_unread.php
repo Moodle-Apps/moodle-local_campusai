@@ -14,23 +14,104 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions;
+
 /**
+ * forum_unread function.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class forum_unread extends base_function {
+    /**
+     * Returns the identifier.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'forum_unread';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the human-readable description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_forum_unread_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'Are there unread forum posts?',
+            'Show unread forum discussions.',
+        ];
+    }
 
+    /**
+     * Returns the JSON schema parameters.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type' => 'object',
+            'properties' => (object) [],
+        ];
+    }
 
- namespace local_campusai\functions; defined('MOODLE_INTERNAL') || die(); class forum_unread extends base_function { public function get_definition(): array { return [ 'name' => 'get_forum_unread', 'description' => 'Get the number of unread forum posts across all enrolled courses.', 'parameters' => [ 'type' => 'object', 'properties' => new \stdClass(), ], ]; } public function execute(array $arguments): array { global $DB, $CFG; $courses = enrol_get_users_courses($this->userid); $forums = []; foreach ($courses as $course) { $modinfo = get_fast_modinfo($course->id, $this->userid); foreach ($modinfo->get_instances_of('forum') as $cm) { if (!$cm->visible || !$cm->uservisible) { continue; } $forum = $DB->get_record('forum', ['id' => $cm->instance], '*', IGNORE_MISSING); if (!$forum) { continue; } $sql = "SELECT COUNT(1)
-                          FROM {forum_posts} fp
-                          JOIN {forum_discussions} fd ON fp.discussion = fd.id
-                     LEFT JOIN {forum_read} fr ON fr.postid = fp.id AND fr.userid = ?
-                         WHERE fd.forum = ? AND fp.modified > ? AND fr.id IS NULL"; $unread = (int) $DB->count_records_sql($sql, [$this->userid, $forum->id, $forum->timemarked ?? 0]); if ($unread === 0) { $sql2 = "SELECT COUNT(1)
-                               FROM {forum_posts} fp
-                               JOIN {forum_discussions} fd ON fp.discussion = fd.id
-                          LEFT JOIN {forum_read} fr ON fr.postid = fp.id AND fr.userid = ?
-                              WHERE fd.forum = ? AND fp.userid != ? AND fr.id IS NULL"; $unread = (int) $DB->count_records_sql($sql2, [$this->userid, $forum->id, $this->userid]); } if ($unread > 0) { $forums[] = [ 'course' => $course->fullname, 'forum' => $forum->name, 'unread_count' => $unread, ]; } } } return ['forums_with_unread' => $forums]; } } 
+    /**
+     * Executes the function and returns a plain text result.
+     * @param int $userid
+     * @param array $args
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        global $DB;
+
+        $courses = enrol_get_users_courses($userid, true, 'id');
+        if (empty($courses)) {
+            return get_string('error_not_enrolled', 'local_campusai');
+        }
+
+        $courseids = array_keys($courses);
+        [$insql, $params] = $DB->get_in_or_equal($courseids, SQL_PARAMS_NAMED);
+        $params['userid'] = $userid;
+
+        $sql = "SELECT f.id, f.name, f.course, COUNT(fp.id) AS unread
+                  FROM {forum} f
+                  JOIN {course_modules} cm ON cm.instance = f.id AND cm.module = :forummodule AND cm.course $insql
+                  JOIN {forum_discussions} fd ON fd.forum = f.id
+                  JOIN {forum_posts} fp ON fp.discussion = fd.id AND fp.userid <> :userid
+             LEFT JOIN {forum_read} fr ON fr.postid = fp.id AND fr.userid = :userid2
+                 WHERE fr.id IS NULL
+              GROUP BY f.id, f.name, f.course
+              ORDER BY unread DESC";
+
+        $params['forummodule'] = $DB->get_field('modules', 'id', ['name' => 'forum']);
+        $params['userid2'] = $userid;
+
+        $records = $DB->get_records_sql($sql, $params, 0, 20);
+
+        if (empty($records)) {
+            return get_string('function_forum_unread_empty', 'local_campusai');
+        }
+
+        $lines = [];
+        foreach ($records as $r) {
+            $lines[] = get_string(
+                'function_forum_unread_item',
+                'local_campusai',
+                (object) ['name' => $r->name, 'unread' => $r->unread]
+            );
+        }
+
+        return implode("\n", $lines);
+    }
+}

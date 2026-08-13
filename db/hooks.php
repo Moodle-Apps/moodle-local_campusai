@@ -15,14 +15,18 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
+ * Hook callbacks for Campus Assistant.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+defined('MOODLE_INTERNAL') || die();
 
-
-
-defined('MOODLE_INTERNAL') || die(); $callbacks = [ [ 'hook' => 'core\hook\output\before_standard_head_html_generation', 'callback' => 'local_campusai\hook_callbacks::before_standard_head_html_generation', 'priority' => 0, ], ]; 
+$callbacks = [
+    [
+        'hook'      => \core\hook\output\before_standard_head_html_generation::class,
+        'callback'  => 'local_campusai\hook_callbacks::before_standard_head',
+    ],
+];

@@ -14,15 +14,101 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions;
+
 /**
+ * late_submissions function.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class late_submissions extends base_function {
+    /**
+     * Returns the identifier.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'late_submissions';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the human-readable description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_late_submissions_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'Which of my submissions were late?',
+            'Show my late assignments.',
+        ];
+    }
 
+    /**
+     * Returns the JSON schema parameters.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'limit' => [
+                    'type' => 'integer',
+                    'description' => get_string('function_late_submissions_param_limit', 'local_campusai'),
+                    'default' => 10,
+                ],
+            ],
+        ];
+    }
 
- namespace local_campusai\functions; defined('MOODLE_INTERNAL') || die(); class late_submissions extends base_function { public function get_definition(): array { return [ 'name' => 'get_late_submissions', 'description' => 'Get your assignments that were submitted after the due date.', 'parameters' => [ 'type' => 'object', 'properties' => new \stdClass(), ], ]; } public function execute(array $arguments): array { global $DB; $courses = enrol_get_users_courses($this->userid); $courseids = array_keys($courses); if (empty($courseids)) { return ['late_submissions' => [], 'message' => 'No courses enrolled.']; } $result = []; foreach ($courses as $course) { $modinfo = get_fast_modinfo($course->id, $this->userid); $assigns = $modinfo->get_instances_of('assign'); foreach ($assigns as $cm) { if (!$cm->visible) { continue; } $assign = $DB->get_record('assign', ['id' => $cm->instance], 'id, name, duedate', IGNORE_MISSING); if (!$assign || $assign->duedate <= 0) { continue; } $submission = $DB->get_record('assign_submission', [ 'assignment' => $assign->id, 'userid' => $this->userid, ], 'timemodified, status', IGNORE_MISSING); if (!$submission || $submission->status !== 'submitted') { continue; } if ($submission->timemodified > $assign->duedate) { $lateness = $submission->timemodified - $assign->duedate; $result[] = [ 'course' => $course->fullname, 'assignment' => $assign->name, 'due_date' => $this->format_date($assign->duedate), 'submitted' => $this->format_date($submission->timemodified), 'late_by_days' => round($lateness / DAYSECS, 1), ]; } } } return ['late_submissions' => $result]; } } 
+    /**
+     * Executes the function and returns a plain text result.
+     * @param int $userid
+     * @param array $args
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        global $DB;
+
+        $limit = $args['limit'] ?? 10;
+
+        $sql = "SELECT s.id, a.name, s.timemodified, a.duedate, c.fullname
+                  FROM {assign_submission} s
+                  JOIN {assign} a ON a.id = s.assignment
+                  JOIN {course} c ON c.id = a.course
+                 WHERE s.userid = :userid AND s.status = 'submitted' AND a.duedate > 0
+                   AND s.timemodified > a.duedate
+              ORDER BY s.timemodified DESC";
+
+        $records = $DB->get_records_sql($sql, ['userid' => $userid], 0, $limit);
+
+        if (empty($records)) {
+            return get_string('function_late_submissions_empty', 'local_campusai');
+        }
+
+        $lines = [];
+        foreach ($records as $r) {
+            $submitted = userdate($r->timemodified, get_string('strftimedatetime', 'langconfig'));
+            $due = userdate($r->duedate, get_string('strftimedatetime', 'langconfig'));
+            $lines[] = get_string('function_late_submissions_item', 'local_campusai', (object) [
+                'name' => $r->name,
+                'fullname' => $r->fullname,
+                'submitted' => $submitted,
+                'due' => $due,
+            ]);
+        }
+
+        return implode("\n", $lines);
+    }
+}

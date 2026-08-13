@@ -14,22 +14,117 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions\admin;
+
 /**
+ * Inactive users function.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class inactive_users extends base_admin {
+    /**
+     * Returns the function name.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'admin_inactive_users';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the function description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_admin_inactive_users_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions for the widget.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'Which users have been inactive?',
+            'Show users who have not logged in recently.',
+        ];
+    }
 
+    /**
+     * Returns the function parameters schema.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'days' => [
+                    'type' => 'integer',
+                    'description' => get_string('function_admin_inactive_users_param_days', 'local_campusai'),
+                    'default' => 30,
+                ],
+                'limit' => [
+                    'type' => 'integer',
+                    'description' => get_string('function_admin_inactive_users_param_limit', 'local_campusai'),
+                    'default' => 50,
+                ],
+            ],
+            'required' => [],
+        ];
+    }
 
-namespace local_campusai\functions\admin; class inactive_users extends base_admin { public function get_definition(): array { return [ 'name' => 'get_inactive_students', 'description' => 'Get students who have not logged in recently. Default: 30 days.', 'parameters' => [ 'type' => 'object', 'properties' => [ 'days' => [ 'type' => 'integer', 'description' => 'Number of days of inactivity (default 30).', ], ], ], ]; } public function execute(array $arguments): array { global $DB; $days = (int)($arguments['days'] ?? 30); $days = max(1, min(365, $days)); $cutoff = time() - ($days * DAYSECS); $sql = "SELECT u.id, u.firstname, u.lastname, u.lastlogin, u.email
-                FROM {user} u
-                JOIN {role_assignments} ra ON ra.userid = u.id
-                WHERE ra.roleid = 5
-                AND u.deleted = 0 AND u.suspended = 0
-                AND (u.lastlogin < ? OR u.lastlogin IS NULL OR u.lastlogin = 0)
-                ORDER BY u.lastlogin ASC
-                LIMIT 50"; $users = $DB->get_records_sql($sql, [$cutoff]); $result = []; foreach ($users as $u) { $lastlogin = $u->lastlogin > 0 ? $this->format_date($u->lastlogin) : 'Never'; $result[] = [ 'name' => fullname($u), 'email' => $u->email, 'last_login' => $lastlogin, ]; } return [ 'inactive_students' => $result, 'total_inactive' => count($result), 'days_threshold' => $days, ]; } } 
+    /**
+     * Executes the function.
+     *
+     * @param int $userid User ID.
+     * @param array $args Arguments from the LLM.
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        global $DB;
+
+        if (!has_capability('local/campusai:manage', \context_system::instance(), $userid)) {
+            return get_string('function_admin_inactive_users_permission', 'local_campusai');
+        }
+
+        $days = isset($args['days']) ? (int) $args['days'] : 30;
+        $days = max($days, 1);
+        $limit = isset($args['limit']) ? (int) $args['limit'] : 50;
+        $limit = min(max($limit, 1), 200);
+
+        $threshold = time() - ($days * DAYSECS);
+
+        $sql = "SELECT id, firstname, lastname, lastaccess
+                  FROM {user}
+                 WHERE deleted = 0
+                   AND suspended = 0
+                   AND (lastaccess < :threshold OR lastaccess = 0)
+              ORDER BY lastaccess ASC";
+
+        $records = $DB->get_records_sql($sql, ['threshold' => $threshold], 0, $limit);
+
+        if (empty($records)) {
+            return get_string('function_admin_inactive_users_empty', 'local_campusai', (object) ['days' => $days]);
+        }
+
+        $lines = [];
+        foreach ($records as $record) {
+            $name = fullname($record);
+            $last = $record->lastaccess > 0
+                ? userdate($record->lastaccess, '%d/%m/%Y')
+                : get_string('status_never', 'local_campusai');
+            $lines[] = get_string(
+                'function_admin_inactive_users_item',
+                'local_campusai',
+                (object) ['name' => $name, 'last' => $last]
+            );
+        }
+
+        return implode("\n", $lines);
+    }
+}

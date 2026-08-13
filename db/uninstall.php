@@ -15,14 +15,22 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
+ * Uninstall hook for Campus Assistant.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+/**
+ * Removes all plugin configuration values on uninstall.
+ *
+ * @return bool
+ */
+function xmldb_local_campusai_uninstall(): bool {
+    global $DB;
 
+    $DB->delete_records('config_plugins', ['plugin' => 'local_campusai']);
 
-
- defined('MOODLE_INTERNAL') || die(); function xmldb_local_campusai_uninstall() { $existing = get_config('core', 'additionalhtmlhead'); if (!empty($existing) && strpos($existing, 'campusai') !== false) { $lines = explode("\n", $existing); $cleaned = []; foreach ($lines as $line) { if (strpos($line, 'campusai') === false) { $cleaned[] = $line; } } set_config('additionalhtmlhead', implode("\n", $cleaned), 'core'); } return true; } 
+    return true;
+}

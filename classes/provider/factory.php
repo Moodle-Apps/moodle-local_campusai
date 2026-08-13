@@ -14,15 +14,32 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\provider;
+
 /**
+ * Factory for AI provider instances.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
-
-
-
-namespace local_campusai\provider; class factory { public static function create(): provider_interface { $provider = get_config('local_campusai', 'provider'); $apikey = get_config('local_campusai', 'apikey'); $model = get_config('local_campusai', 'model'); if (debugging('', DEBUG_DEVELOPER)) { debugging('campusai provider=' . $provider . ' model=' . $model, DEBUG_DEVELOPER); } if ($provider === 'proxy') { $licensekey = trim((string) get_config('local_campusai', 'licensekey')); if (empty($licensekey)) { throw new \moodle_exception('error_noapikey', 'local_campusai'); } return new proxy_provider($licensekey); } if (empty($apikey)) { throw new \moodle_exception('error_noapikey', 'local_campusai'); } switch ($provider) { case 'openai': return new openai_provider($apikey, $model); case 'gemini': return new gemini_provider($apikey, $model); case 'claude': return new claude_provider($apikey, $model); case 'deepseek': return new deepseek_provider($apikey, $model); case 'proxy': $licensekey = trim((string) get_config('local_campusai', 'licensekey')); return new proxy_provider($licensekey); default: throw new \moodle_exception('error_provider', 'local_campusai', '', null, 'Unknown: ' . $provider); } } public static function get_providers(): array { return [ 'proxy' => 'Free (Managed by Campus Assistant)', 'openai' => 'OpenAI (your API key)', 'gemini' => 'Google Gemini (your API key)', 'claude' => 'Anthropic Claude (your API key)', 'deepseek' => 'DeepSeek (your API key)', ]; } public static function get_recommended_models(): array { return [ 'openai' => ['gpt-4o-mini', 'gpt-4o'], 'gemini' => ['gemini-1.5-flash', 'gemini-1.5-pro'], 'claude' => ['claude-3-5-haiku-20241022', 'claude-3-5-sonnet-20241022'], 'deepseek' => ['deepseek-chat', 'deepseek-reasoner'], ]; } } 
+class factory {
+    /**
+     * Creates a provider instance by name.
+     *
+     * @param string $name Provider name.
+     * @param string $apikey API key or license key.
+     * @param string $jwtsecret JWT shared secret (used by proxy).
+     * @return provider_interface
+     */
+    public static function create(string $name, string $apikey, string $jwtsecret): provider_interface {
+        return match ($name) {
+            'openai'   => new openai_provider($apikey, $jwtsecret),
+            'gemini'   => new gemini_provider($apikey, $jwtsecret),
+            'claude'   => new claude_provider($apikey, $jwtsecret),
+            'deepseek' => new deepseek_provider($apikey, $jwtsecret),
+            'proxy'    => new proxy_provider($apikey, $jwtsecret),
+            default    => throw new \moodle_exception('error_provider', 'local_campusai'),
+        };
+    }
+}

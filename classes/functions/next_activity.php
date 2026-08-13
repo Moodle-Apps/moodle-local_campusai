@@ -14,15 +14,101 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions;
+
 /**
+ * next_activity function.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class next_activity extends base_function {
+    /**
+     * Returns the identifier.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'next_activity';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the human-readable description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_next_activity_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'What should I do next?',
+            'Show my next incomplete activity.',
+        ];
+    }
 
+    /**
+     * Returns the JSON schema parameters.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'courseid' => [
+                    'type' => 'integer',
+                    'description' => get_string('param_courseid_optional', 'local_campusai'),
+                ],
+            ],
+        ];
+    }
 
- namespace local_campusai\functions; defined('MOODLE_INTERNAL') || die(); class next_activity extends base_function { public function get_definition(): array { return [ 'name' => 'get_next_activity', 'description' => 'Get the next recommended pending activity based on completion tracking. Optionally specify a course.', 'parameters' => [ 'type' => 'object', 'properties' => [ 'course_id' => [ 'type' => 'integer', 'description' => 'Optional course ID. If omitted, checks all enrolled courses.', ], ], ], ]; } public function execute(array $arguments): array { global $DB; $courseid = $arguments['course_id'] ?? null; $courses = enrol_get_users_courses($this->userid); if ($courseid) { $courses = isset($courses[$courseid]) ? [$courseid => $courses[$courseid]] : []; } if (empty($courses)) { return ['next_activity' => null, 'message' => 'No courses found.']; } $recommended = []; foreach ($courses as $course) { $completion = new \completion_info($course); if (!$completion->is_enabled()) { continue; } $modinfo = get_fast_modinfo($course->id, $this->userid); $cms = $modinfo->get_cms(); foreach ($cms as $cm) { if (!$cm->visible || !$cm->completion) { continue; } $data = $completion->get_data($cm, false, $this->userid); if ($data->completionstate == COMPLETION_COMPLETE || $data->completionstate == COMPLETION_COMPLETE_PASS) { continue; } $recommended[] = [ 'course' => $course->fullname, 'activity' => $cm->name, 'type' => $cm->modname, 'url' => (string)(new \moodle_url('/mod/' . $cm->modname . '/view.php', ['id' => $cm->id])), ]; break; } } return ['next_activities' => $recommended]; } } 
+    /**
+     * Executes the function and returns a plain text result.
+     * @param int $userid
+     * @param array $args
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        $courseid = $args['courseid'] ?? 0;
+
+        if ($courseid && !is_enrolled(\context_course::instance($courseid), $userid)) {
+            return get_string('error_no_course_access', 'local_campusai');
+        }
+
+        if ($courseid) {
+            $courses = [$courseid => get_course($courseid)];
+        } else {
+            $courses = enrol_get_users_courses($userid, true, 'id, fullname');
+        }
+
+        foreach ($courses as $course) {
+            $modinfo = get_fast_modinfo($course->id, $userid);
+            foreach ($modinfo->get_cms() as $cm) {
+                if ($cm->uservisible && !$cm->completion) {
+                    continue;
+                }
+                if ($cm->uservisible) {
+                    $completioninfo = new \completion_info($course);
+                    $state = $completioninfo->get_data($cm, false, $userid)->completionstate;
+                    if ($state == COMPLETION_INCOMPLETE) {
+                        return get_string('function_next_activity_result', 'local_campusai', (object) [
+                            'activity' => $cm->get_formatted_name(),
+                            'course' => $course->fullname,
+                        ]);
+                    }
+                }
+            }
+        }
+
+        return get_string('function_next_activity_empty', 'local_campusai');
+    }
+}

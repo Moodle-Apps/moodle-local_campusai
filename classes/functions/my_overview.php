@@ -14,20 +14,100 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions;
+
 /**
+ * my_overview function.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class my_overview extends base_function {
+    /**
+     * Returns the identifier.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'my_overview';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the human-readable description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_my_overview_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'Give me an overview of my studies.',
+            'How many courses and tasks do I have?',
+        ];
+    }
 
+    /**
+     * Returns the JSON schema parameters.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type' => 'object',
+            'properties' => (object) [],
+        ];
+    }
 
- namespace local_campusai\functions; defined('MOODLE_INTERNAL') || die(); class my_overview extends base_function { public function get_definition(): array { return [ 'name' => 'get_my_overview', 'description' => 'Get a 360-degree overview: enrolled courses, pending tasks, upcoming deadlines, and current grades — all in one call.', 'parameters' => [ 'type' => 'object', 'properties' => new \stdClass(), ], ]; } public function execute(array $arguments): array { $courses_result = (new course_list($this->userid))->execute([]); $tasks_result = (new pending_tasks($this->userid))->execute([]); $deadlines_result = (new deadlines($this->userid))->execute([]); global $DB; $gradeitems = $DB->get_records_sql( 'SELECT gi.id, gi.itemname, gi.courseid, gg.finalgrade, gi.grademax, c.fullname AS coursename
-               FROM {grade_items} gi
-               JOIN {grade_grades} gg ON gi.id = gg.itemid
-               JOIN {course} c ON gi.courseid = c.id
-              WHERE gg.userid = ? AND gg.finalgrade IS NOT NULL AND gi.hidden = 0
-           ORDER BY c.fullname, gi.sortorder', [$this->userid] ); $gradesclean = []; foreach ($gradeitems as $g) { $gradesclean[] = [ 'course' => $g->coursename, 'item' => $g->itemname ?: 'Course total', 'grade' => round((float)$g->finalgrade, 1) . '/' . round((float)$g->grademax, 0), ]; } return [ 'courses' => $courses_result['courses'] ?? [], 'pending_tasks' => $tasks_result['tasks'] ?? [], 'upcoming_deadlines' => $deadlines_result['deadlines'] ?? [], 'grades' => $gradesclean, 'summary' => [ 'total_courses' => count($courses_result['courses'] ?? []), 'total_pending' => count($tasks_result['tasks'] ?? []), 'total_deadlines' => count($deadlines_result['deadlines'] ?? []), ], ]; } } 
+    /**
+     * Executes the function and returns a plain text result.
+     * @param int $userid
+     * @param array $args
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        global $DB;
+
+        $courses = enrol_get_users_courses($userid, true, 'id, fullname');
+        $coursescount = count($courses);
+
+        $courseids = array_keys($courses);
+        $pendingtasks = 0;
+        $deadlines = 0;
+        if (!empty($courseids)) {
+            [$insql, $params] = $DB->get_in_or_equal($courseids, SQL_PARAMS_NAMED);
+            $params['now'] = time();
+            $params['end'] = time() + (14 * DAYSECS);
+            $params['assignmodule'] = $DB->get_field('modules', 'id', ['name' => 'assign']);
+
+            $sql = "SELECT COUNT(a.id)
+                      FROM {assign} a
+                      JOIN {course_modules} cm ON cm.instance = a.id AND cm.module = :assignmodule
+                     WHERE cm.course $insql AND a.duedate > :now AND a.duedate <= :end";
+            $deadlines = $DB->count_records_sql($sql, $params);
+
+            $sql = "SELECT COUNT(a.id)
+                      FROM {assign} a
+                      JOIN {course_modules} cm ON cm.instance = a.id AND cm.module = :assignmodule2
+                 LEFT JOIN {assign_submission} s ON s.assignment = a.id AND s.userid = :userid AND s.status = 'submitted'
+                     WHERE cm.course $insql AND a.duedate > :now2 AND s.id IS NULL";
+            $params['assignmodule2'] = $params['assignmodule'];
+            $params['now2'] = $params['now'];
+            $params['userid'] = $userid;
+            $pendingtasks = $DB->count_records_sql($sql, $params);
+        }
+
+        return get_string('function_my_overview_result', 'local_campusai', (object) [
+            'coursescount' => $coursescount,
+            'pendingtasks' => $pendingtasks,
+            'deadlines' => $deadlines,
+        ]);
+    }
+}

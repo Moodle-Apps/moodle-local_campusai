@@ -14,15 +14,96 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions;
+
 /**
+ * course_content function.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class course_content extends base_function {
+    /**
+     * Returns the identifier.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'course_content';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the human-readable description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_course_content_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'What is the content of this course?',
+            'Show the course outline.',
+        ];
+    }
 
+    /**
+     * Returns the JSON schema parameters.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'courseid' => [
+                    'type' => 'integer',
+                    'description' => get_string('param_courseid', 'local_campusai'),
+                ],
+            ],
+            'required' => ['courseid'],
+        ];
+    }
 
- namespace local_campusai\functions; defined('MOODLE_INTERNAL') || die(); class course_content extends base_function { public function get_definition(): array { return [ 'name' => 'get_course_activities', 'description' => 'Get the list of available activities and resources in a specific course.', 'parameters' => [ 'type' => 'object', 'properties' => [ 'course_id' => [ 'type' => 'integer', 'description' => 'The course ID to list activities for.', ], ], ], ]; } public function execute(array $arguments): array { $courseid = (int)($arguments['course_id'] ?? 0); if ($courseid <= 0) { return ['error' => 'A valid course ID is required.']; } if (!$this->is_enrolled($courseid)) { return ['error' => 'You are not enrolled in this course.']; } $modinfo = get_fast_modinfo($courseid, $this->userid); $sections = $modinfo->get_sections(); $result = []; foreach ($sections as $sectionnum => $cms) { $sectioninfo = $modinfo->get_section_info($sectionnum); if (!$sectioninfo->visible) { continue; } $sectionname = get_section_name($courseid, $sectionnum); $activities = []; foreach ($cms as $cm) { if (!$cm->visible || !$cm->uservisible) { continue; } $activities[] = [ 'name' => $cm->name, 'type' => $cm->modname, 'section' => $sectionname, ]; } if (!empty($activities)) { $result[] = [ 'section' => $sectionname, 'activities' => $activities, ]; } } return ['course_content' => $result]; } } 
+    /**
+     * Executes the function and returns a plain text result.
+     * @param int $userid
+     * @param array $args
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        $courseid = $args['courseid'];
+
+        if (!is_enrolled(\context_course::instance($courseid), $userid)) {
+            return get_string('error_no_course_access', 'local_campusai');
+        }
+
+        $modinfo = get_fast_modinfo($courseid, $userid);
+        $sections = $modinfo->get_section_info_all();
+
+        if (empty($sections)) {
+            return get_string('function_course_content_empty', 'local_campusai');
+        }
+
+        $lines = [];
+        foreach ($sections as $section) {
+            $name = get_section_name($courseid, $section);
+            $lines[] = '- **' . $name . '**';
+            $cms = $modinfo->get_cms($section->section) ?: [];
+            foreach ($cms as $cm) {
+                if ($cm->is_visible_on_course_page()) {
+                    $lines[] = '  - ' . $cm->get_formatted_name();
+                }
+            }
+        }
+
+        return implode("\n", $lines);
+    }
+}

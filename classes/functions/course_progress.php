@@ -14,15 +14,87 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_campusai\functions;
+
 /**
+ * course_progress function.
+ *
  * @package    local_campusai
- * @copyright  2026 Campus Assistant <hola@campusassistant.app>
+ * @copyright  2026 Moodle-Apps
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+class course_progress extends base_function {
+    /**
+     * Returns the identifier.
+     *
+     * @return string
+     */
+    public static function name(): string {
+        return 'course_progress';
+    }
 
-// This file is part of the Campus Assistant plugin for Moodle.
-// It is distributed under the GNU GPL v3 or later license.
+    /**
+     * Returns the human-readable description.
+     *
+     * @return string
+     */
+    public static function description(): string {
+        return get_string('function_course_progress_description', 'local_campusai');
+    }
 
+    /**
+     * Returns example questions.
+     *
+     * @return array
+     */
+    public static function examples(): array {
+        return [
+            'What is my progress in this course?',
+            'Show my course completion percentage.',
+        ];
+    }
 
+    /**
+     * Returns the JSON schema parameters.
+     *
+     * @return array
+     */
+    public static function parameters(): array {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'courseid' => [
+                    'type' => 'integer',
+                    'description' => get_string('param_courseid', 'local_campusai'),
+                ],
+            ],
+            'required' => ['courseid'],
+        ];
+    }
 
- namespace local_campusai\functions; defined('MOODLE_INTERNAL') || die(); class course_progress extends base_function { public function get_definition(): array { return [ 'name' => 'get_course_progress', 'description' => 'Get the completion percentage and progress details for a specific course.', 'parameters' => [ 'type' => 'object', 'properties' => [ 'course_id' => [ 'type' => 'integer', 'description' => 'The course ID.', ], ], 'required' => ['course_id'], ], ]; } public function execute(array $arguments): array { global $DB; $courseid = (int)($arguments['course_id'] ?? 0); if ($courseid <= 0) { return ['error' => 'A valid course ID is required.']; } if (!$this->is_enrolled($courseid)) { return ['error' => 'You are not enrolled in this course.']; } $course = $DB->get_record('course', ['id' => $courseid], '*', MUST_EXIST); $completion = new \completion_info($course); if (!$completion->is_enabled()) { return [ 'course' => $course->fullname, 'enabled' => false, 'message' => 'Completion tracking is not enabled for this course.', ]; } $modinfo = get_fast_modinfo($courseid, $this->userid); $activities = $completion->get_activities(); if (empty($activities)) { return [ 'course' => $course->fullname, 'enabled' => true, 'total' => 0, 'completed' => 0, 'percentage' => 0, ]; } $completed = 0; $details = []; foreach ($activities as $activity) { $iscomplete = $completion->is_activity_complete($this->userid, $activity); if ($iscomplete) { $completed++; } $details[] = [ 'activity' => $activity->name, 'type' => $activity->modname, 'completed' => $iscomplete, ]; } $percentage = round(($completed / count($activities)) * 100); return [ 'course' => $course->fullname, 'enabled' => true, 'total' => count($activities), 'completed' => $completed, 'percentage' => $percentage, 'details' => $details, ]; } } 
+    /**
+     * Executes the function and returns a plain text result.
+     * @param int $userid
+     * @param array $args
+     * @return string
+     */
+    public function execute(int $userid, array $args): string {
+        $courseid = $args['courseid'];
+
+        if (!is_enrolled(\context_course::instance($courseid), $userid)) {
+            return get_string('error_no_course_access', 'local_campusai');
+        }
+
+        $course = get_course($courseid);
+        $completion = new \completion_info($course);
+
+        if (!$completion->is_enabled()) {
+            return get_string('function_course_progress_not_enabled', 'local_campusai');
+        }
+
+        $progress = $completion->get_percentage($userid);
+        $progress = $progress === false ? 0 : (int) round($progress);
+
+        return get_string('function_course_progress_result', 'local_campusai', (object) ['progress' => $progress]);
+    }
+}
