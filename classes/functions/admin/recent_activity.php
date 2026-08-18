@@ -92,8 +92,10 @@ class recent_activity extends base_admin {
             return get_string('function_admin_recent_activity_permission', 'local_campusai');
         }
 
+        // Keep the time window small so the query on the log table stays cheap: at most 30 days
+        // back, newest records first, with a small row limit.
         $days = isset($args['days']) ? (int) $args['days'] : 7;
-        $days = max($days, 1);
+        $days = min(max($days, 1), 30);
         $limit = isset($args['limit']) ? (int) $args['limit'] : 20;
         $limit = min(max($limit, 1), 100);
 

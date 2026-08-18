@@ -29,7 +29,7 @@ use local_campusai\privacy\provider;
  */
 final class privacy_test extends advanced_testcase {
     /**
-     * Tests that metadata describes both plugin tables.
+     * Tests that metadata describes both plugin tables and the external AI providers.
      *
      * @return void
      */
@@ -38,7 +38,7 @@ final class privacy_test extends advanced_testcase {
         $collection = provider::get_metadata($collection);
 
         $items = $collection->get_collection();
-        $this->assertCount(2, $items);
+        $this->assertCount(7, $items);
 
         $tables = array_map(function ($item) {
             return $item->get_name();
@@ -46,6 +46,28 @@ final class privacy_test extends advanced_testcase {
 
         $this->assertContains('local_campusai_conversation', $tables);
         $this->assertContains('local_campusai_ratelimit', $tables);
+    }
+
+    /**
+     * Tests that metadata declares every external location data is sent to.
+     *
+     * @return void
+     */
+    public function test_metadata_includes_external_locations(): void {
+        $collection = new \core_privacy\local\metadata\collection('local_campusai');
+        $collection = provider::get_metadata($collection);
+
+        $locations = [];
+        foreach ($collection->get_collection() as $item) {
+            if ($item instanceof \core_privacy\local\metadata\types\external_location) {
+                $locations[] = $item->get_name();
+            }
+        }
+
+        $this->assertEqualsCanonicalizing(
+            ['proxy', 'openai', 'claude', 'gemini', 'deepseek'],
+            $locations
+        );
     }
 
     /**

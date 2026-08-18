@@ -91,10 +91,22 @@ class study_time extends base_function {
             return get_string('function_study_time_no_data', 'local_campusai');
         }
 
+        // Restrict the scan of the (potentially huge) log table to a fixed time window so the
+        // query stays index-friendly on large sites. Study time is estimated from the last
+        // 90 days of activity only.
+        $threshold = time() - (90 * DAYSECS);
+
         $sql = "SELECT COUNT(id) AS actions
                   FROM {logstore_standard_log}
-                 WHERE userid = :userid AND courseid = :courseid AND action = 'viewed'";
-        $actions = $DB->count_records_sql($sql, ['userid' => $userid, 'courseid' => $courseid]);
+                 WHERE userid = :userid
+                   AND courseid = :courseid
+                   AND action = 'viewed'
+                   AND timecreated > :threshold";
+        $actions = $DB->count_records_sql($sql, [
+            'userid' => $userid,
+            'courseid' => $courseid,
+            'threshold' => $threshold,
+        ]);
 
         if ($actions == 0) {
             return get_string('function_study_time_empty', 'local_campusai');

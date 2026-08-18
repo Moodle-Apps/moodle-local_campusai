@@ -117,8 +117,7 @@ class hook_callbacks {
         $stringsjson = json_encode($stringdata, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
         $hook->add_html("<script>window.campusaiConfig = {$json}; window.campusaiStrings = {$stringsjson};</script>");
 
-        $PAGE->requires->js('/local/campusai/javascript/campusai.js');
-        $PAGE->requires->css('/local/campusai/styles.css');
+        $PAGE->requires->js_call_amd('local_campusai/campusai', 'init');
     }
 
     /**

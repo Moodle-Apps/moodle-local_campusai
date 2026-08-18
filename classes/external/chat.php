@@ -39,7 +39,7 @@ class chat extends external_api {
     public static function send_message_parameters(): external_function_parameters {
         return new external_function_parameters([
             'message' => new external_value(
-                PARAM_RAW_TRIMMED,
+                PARAM_TEXT,
                 get_string('external_param_message', 'local_campusai'),
                 VALUE_REQUIRED
             ),
@@ -53,7 +53,7 @@ class chat extends external_api {
      */
     public static function send_message_returns(): external_single_structure {
         return new external_single_structure([
-            'reply'    => new external_value(PARAM_RAW, get_string('external_return_reply', 'local_campusai')),
+            'reply'    => new external_value(PARAM_TEXT, get_string('external_return_reply', 'local_campusai')),
             'warnings' => new external_warnings(),
         ]);
     }

@@ -59,7 +59,7 @@ if (!has_capability('local/campusai:use', $context)) {
     exit;
 }
 
-$message = optional_param('message', '', PARAM_RAW_TRIMMED);
+$message = optional_param('message', '', PARAM_TEXT);
 if ($message === '') {
     echo json_encode($response);
     exit;

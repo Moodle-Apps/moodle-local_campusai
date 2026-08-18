@@ -105,10 +105,11 @@ class announcements extends base_function {
         [$insql, $params] = $DB->get_in_or_equal($courseids, SQL_PARAMS_NAMED);
         $params['userid'] = $userid;
 
-        $sql = "SELECT p.id, p.subject, p.message, d.course, d.timemodified
+        $sql = "SELECT p.id, p.subject, p.message, d.course, d.timemodified, c.shortname
                   FROM {forum_discussions} d
                   JOIN {forum_posts} p ON p.discussion = d.id
                   JOIN {forum} f ON f.id = d.forum
+                  JOIN {course} c ON c.id = d.course
                  WHERE f.type = 'news' AND d.course $insql
               ORDER BY d.timemodified DESC";
 
@@ -120,8 +121,7 @@ class announcements extends base_function {
 
         $lines = [];
         foreach ($records as $r) {
-            $course = $DB->get_record('course', ['id' => $r->course], 'shortname', MUST_EXIST);
-            $lines[] = '- **' . strip_tags($r->subject) . '** (' . $course->shortname . '): ' .
+            $lines[] = '- **' . strip_tags($r->subject) . '** (' . $r->shortname . '): ' .
                 shorten_text(strip_tags($r->message), 120);
         }
 
