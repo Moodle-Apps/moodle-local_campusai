@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.3] - 2026-08-18
+
+### Added
+
+- Privacy provider now declares every external location data is sent to (managed proxy, OpenAI,
+  Anthropic Claude, Google Gemini and DeepSeek) via `add_external_location_link()`.
+- PHPUnit coverage for the external location declarations.
+- GitHub Actions CI workflow based on the official moodle-plugin-ci template.
+
+### Changed
+
+- Migrated the chat widget from legacy JavaScript to an AMD module (`local_campusai/campusai`).
+- Removed redundant `$PAGE->requires->css()` call; Moodle loads the plugin `styles.css` automatically.
+- Replaced all `PARAM_RAW`/`PARAM_RAW_TRIMMED` usage with stricter param types (`PARAM_TEXT`).
+- Hardened queries on `logstore_standard_log`: `study_time` now scans a fixed 90-day window,
+  `admin_login_stats` reads at most 1000 rows and `admin_recent_activity` caps the window at 30 days.
+- Fixed N+1 queries in announcements and teacher overview functions.
+
+### Removed
+
+- Redundant `db/uninstall.php`; Moodle already removes plugin configuration on uninstall.
+
 ## [2.2.2] - 2026-08-12
 
 ### Changed

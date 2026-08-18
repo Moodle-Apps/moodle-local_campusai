@@ -23,6 +23,9 @@ namespace local_campusai\functions\teacher;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class at_risk_students extends base_teacher {
+    /** @var int Maximum number of courses analysed per request. */
+    private const MAX_COURSES = 25;
+
     /**
      * Returns the identifier.
      *
@@ -93,6 +96,8 @@ class at_risk_students extends base_teacher {
             if (!$courses) {
                 return get_string('function_teacher_at_risk_students_no_teaching', 'local_campusai');
             }
+            // Bound the per-course work when the user teaches many courses.
+            $courses = array_slice($courses, 0, self::MAX_COURSES);
         }
 
         $now   = time();

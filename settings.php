@@ -86,7 +86,7 @@ if ($hassiteconfig) {
         get_string('settings_systemprompt', 'local_campusai'),
         get_string('settings_systemprompt_desc', 'local_campusai'),
         get_string('default_systemprompt', 'local_campusai'),
-        PARAM_RAW
+        PARAM_TEXT
     ));
 
     $settings->add(new admin_setting_configtext(
@@ -142,7 +142,7 @@ if ($hassiteconfig) {
         get_string('settings_welcome', 'local_campusai'),
         get_string('settings_welcome_desc', 'local_campusai'),
         get_string('default_welcome', 'local_campusai'),
-        PARAM_RAW
+        PARAM_TEXT
     ));
 
     $settings->add(new admin_setting_configselect(
@@ -212,6 +212,6 @@ if ($hassiteconfig) {
         get_string('settings_hideroles', 'local_campusai'),
         get_string('settings_hideroles_desc', 'local_campusai'),
         '',
-        PARAM_RAW
+        PARAM_TEXT
     ));
 }

@@ -60,6 +60,25 @@ class provider implements \core_privacy\local\request\plugin\provider {
             'privacy:metadata:ratelimit'
         );
 
+        // External AI providers: chat messages, recent conversation history and the results of
+        // Moodle data lookups performed by the assistant are transmitted to the configured
+        // provider in order to generate a reply.
+        $aifields = [
+            'messages' => 'privacy:metadata:ai:messages',
+            'history' => 'privacy:metadata:ai:history',
+            'toolresults' => 'privacy:metadata:ai:toolresults',
+        ];
+
+        $collection->add_external_location_link(
+            'proxy',
+            $aifields + ['userid' => 'privacy:metadata:proxy:userid'],
+            'privacy:metadata:proxy'
+        );
+        $collection->add_external_location_link('openai', $aifields, 'privacy:metadata:openai');
+        $collection->add_external_location_link('claude', $aifields, 'privacy:metadata:claude');
+        $collection->add_external_location_link('gemini', $aifields, 'privacy:metadata:gemini');
+        $collection->add_external_location_link('deepseek', $aifields, 'privacy:metadata:deepseek');
+
         return $collection;
     }
 

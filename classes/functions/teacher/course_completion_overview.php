@@ -23,6 +23,9 @@ namespace local_campusai\functions\teacher;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class course_completion_overview extends base_teacher {
+    /** @var int Maximum number of courses analysed per request. */
+    private const MAX_COURSES = 25;
+
     /**
      * Returns the identifier.
      *
@@ -93,7 +96,22 @@ class course_completion_overview extends base_teacher {
             if (!$courses) {
                 return get_string('function_teacher_course_completion_overview_no_teaching', 'local_campusai');
             }
+            // Bound the per-course work when the user teaches many courses.
+            $courses = array_slice($courses, 0, self::MAX_COURSES);
         }
+
+        // Preload the completion counts for all courses in a single query instead of one
+        // count per course inside the loop.
+        $courseids = array_map(fn($course) => $course->id, $courses);
+        [$insql, $inparams] = $DB->get_in_or_equal($courseids, SQL_PARAMS_NAMED);
+        $completions = $DB->get_records_sql(
+            "SELECT course, COUNT(*) AS completed
+               FROM {course_completions}
+              WHERE course $insql
+                AND timecompleted > 0
+              GROUP BY course",
+            $inparams
+        );
 
         $lines = [];
         foreach ($courses as $course) {
@@ -101,13 +119,7 @@ class course_completion_overview extends base_teacher {
             $students = get_enrolled_users($context, 'mod/assign:submit');
             $total = count($students);
 
-            $completed = $DB->count_records_sql(
-                "SELECT COUNT(*)
-                   FROM {course_completions}
-                  WHERE course = :courseid
-                    AND timecompleted > 0",
-                ['courseid' => $course->id]
-            );
+            $completed = isset($completions[$course->id]) ? (int) $completions[$course->id]->completed : 0;
 
             $lines[] = get_string('function_teacher_course_completion_overview_item', 'local_campusai', (object) [
                 'shortname' => $course->shortname,

@@ -24,6 +24,9 @@ namespace local_campusai\functions\admin;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class login_stats extends base_admin {
+    /** @var int Maximum number of log rows scanned per request. */
+    private const MAX_LOG_RECORDS = 1000;
+
     /**
      * Returns the function name.
      *
@@ -116,13 +119,15 @@ class login_stats extends base_admin {
                 break;
         }
 
+        // Bound the number of log rows read: the log table can be huge, so we only scan the
+        // most recent records within the requested time window, newest first.
         $sql = "SELECT id, timecreated, userid
                   FROM {logstore_standard_log}
                  WHERE action = 'loggedin'
                    AND timecreated > :threshold
               ORDER BY timecreated DESC";
 
-        $records = $DB->get_records_sql($sql, ['threshold' => $threshold]);
+        $records = $DB->get_records_sql($sql, ['threshold' => $threshold], 0, self::MAX_LOG_RECORDS);
 
         if (empty($records)) {
             return get_string('function_admin_login_stats_empty', 'local_campusai');
