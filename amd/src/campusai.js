@@ -75,6 +75,7 @@ const boot = () => {
             if (config.enabled) {
                 mount(config);
             }
+            return null;
         })
         .catch(() => {
             // Silently ignore fetch errors.
@@ -366,11 +367,12 @@ const send = (text) => {
             if (warning.warningcode === 'error_ratelimit') {
                 renderMessage('assistant',
                     t('error_ratelimit', 'You have sent too many messages. Please wait a moment.'));
-                return;
+                return null;
             }
         }
         renderMessage('assistant',
             data.reply || t('error_generic', 'Sorry, something went wrong. Please try again later.'));
+        return null;
     })
     .catch(() => {
         renderMessage('assistant', t('error_generic', 'Sorry, something went wrong. Please try again later.'));
