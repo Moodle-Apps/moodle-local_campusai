@@ -100,54 +100,80 @@ class at_risk_students extends base_teacher {
             $courses = array_slice($courses, 0, self::MAX_COURSES);
         }
 
-        $now   = time();
-        $lines = [];
+        $now = time();
 
+        // Fetch the students of each course once, then resolve grades and
+        // overdue assignments for every course and user with two grouped
+        // queries instead of two queries per course.
+        $studentsbycourse = [];
+        $alluserids = [];
         foreach ($courses as $course) {
             $context = \context_course::instance($course->id);
             $students = get_enrolled_users($context, 'mod/assign:submit');
             if (!$students) {
                 continue;
             }
+            $studentsbycourse[$course->id] = $students;
+            foreach ($students as $uid => $student) {
+                $alluserids[$uid] = $uid;
+            }
+        }
 
-            $userids = array_keys($students);
-            [$insql, $inparams] = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED, 'u');
+        $avggrades = [];
+        $overdues = [];
+        if ($alluserids) {
+            $courseids = array_keys($studentsbycourse);
+            [$insql, $inparams] = $DB->get_in_or_equal($alluserids, SQL_PARAMS_NAMED, 'u');
+            [$coursesql, $courseparams] = $DB->get_in_or_equal($courseids, SQL_PARAMS_NAMED, 'c');
 
-            $avggrade = $DB->get_records_sql(
-                "SELECT u.id,
+            $rs = $DB->get_recordset_sql(
+                "SELECT gi.courseid, gg.userid,
                         AVG(CASE WHEN gg.finalgrade IS NOT NULL AND gi.grademax > 0
                                  THEN gg.finalgrade / gi.grademax * 100 END) AS avggrade
-                   FROM {user} u
-                   LEFT JOIN {grade_grades} gg ON gg.userid = u.id
-                   LEFT JOIN {grade_items} gi ON gi.id = gg.itemid
-                        AND gi.courseid = :courseid
+                   FROM {grade_grades} gg
+                   JOIN {grade_items} gi ON gi.id = gg.itemid
                         AND gi.itemtype != 'course'
-                  WHERE u.id $insql
-                  GROUP BY u.id",
-                array_merge(['courseid' => $course->id], $inparams)
+                  WHERE gg.userid $insql
+                        AND gi.courseid $coursesql
+                  GROUP BY gi.courseid, gg.userid",
+                array_merge($inparams, $courseparams)
             );
+            foreach ($rs as $row) {
+                $avggrades[$row->courseid][$row->userid] = $row->avggrade;
+            }
+            $rs->close();
 
-            $overdue = $DB->get_records_sql(
-                "SELECT u.id, COUNT(a.id) AS overdue
-                   FROM {user} u
-                   LEFT JOIN {assign} a ON a.course = :courseid
-                        AND a.duedate > 0
-                        AND a.duedate < :now
+            $rs = $DB->get_recordset_sql(
+                "SELECT a.course AS courseid, u.id AS userid, COUNT(a.id) AS overdue
+                   FROM {assign} a
+                   JOIN {user} u ON u.id $insql
                    LEFT JOIN {assign_submission} sub ON sub.assignment = a.id
                         AND sub.userid = u.id
                         AND sub.status = 'submitted'
-                  WHERE u.id $insql
-                        AND a.id IS NOT NULL
+                  WHERE a.course $coursesql
+                        AND a.duedate > 0
+                        AND a.duedate < :now
                         AND sub.id IS NULL
-                  GROUP BY u.id",
-                array_merge(['courseid' => $course->id, 'now' => $now], $inparams)
+                  GROUP BY a.course, u.id",
+                array_merge($inparams, $courseparams, ['now' => $now])
             );
+            foreach ($rs as $row) {
+                $overdues[$row->courseid][$row->userid] = $row->overdue;
+            }
+            $rs->close();
+        }
 
-            foreach ($students as $uid => $student) {
-                $avg = isset($avggrade[$uid]) && $avggrade[$uid]->avggrade !== null
-                    ? (float) $avggrade[$uid]->avggrade
+        $lines = [];
+        foreach ($courses as $course) {
+            if (empty($studentsbycourse[$course->id])) {
+                continue;
+            }
+
+            foreach ($studentsbycourse[$course->id] as $uid => $student) {
+                $avg = isset($avggrades[$course->id][$uid]) && $avggrades[$course->id][$uid] !== null
+                    ? (float) $avggrades[$course->id][$uid]
                     : null;
-                $late = isset($overdue[$uid]) ? (int) $overdue[$uid]->overdue : 0;
+                $late = isset($overdues[$course->id][$uid]) ? (int) $overdues[$course->id][$uid] : 0;
 
                 $risk = false;
                 if ($avg !== null && $avg < 50.0) {

@@ -54,13 +54,12 @@ class hook_callbacks {
             return;
         }
 
-        $ajaxurl = new moodle_url('/local/campusai/ajax.php');
+        $initurl = new moodle_url('/local/campusai/init.php');
         $iconurl = self::get_fab_icon_url();
 
         $config = [
             'enabled'     => true,
-            'ajaxUrl'     => $ajaxurl->out(false),
-            'sesskey'     => sesskey(),
+            'initUrl'     => $initurl->out(false),
             'color'       => get_config('local_campusai', 'color'),
             'position'    => get_config('local_campusai', 'position'),
             'title'       => get_config('local_campusai', 'title'),

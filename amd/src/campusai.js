@@ -25,9 +25,10 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
+import Ajax from 'core/ajax';
+
 const STRINGS = window.campusaiStrings || {};
 
-let currentConfig = null;
 let root = null;
 let panel = null;
 let conversation = null;
@@ -67,8 +68,7 @@ const boot = () => {
         return;
     }
 
-    const ajaxUrl = injected.ajaxUrl || '/local/campusai/ajax.php';
-    const initUrl = ajaxUrl.replace(/ajax\.php$/, 'init.php');
+    const initUrl = injected.initUrl || '/local/campusai/init.php';
     fetch(initUrl)
         .then((response) => response.json())
         .then((config) => {
@@ -123,8 +123,6 @@ const mount = (config) => {
     if (document.getElementById('campusai-root')) {
         return;
     }
-
-    currentConfig = config;
 
     root = document.createElement('div');
     root.id = 'campusai-root';
@@ -352,15 +350,10 @@ const send = (text) => {
         input.value = '';
     }
 
-    const formData = new FormData();
-    formData.append('message', text);
-    formData.append('sesskey', (currentConfig && currentConfig.sesskey) || '');
-
-    fetch((currentConfig && currentConfig.ajaxUrl) || '/local/campusai/ajax.php', {
-        method: 'POST',
-        body: formData,
-    })
-    .then((response) => response.json())
+    Ajax.call([{
+        methodname: 'local_campusai_chat_send_message',
+        args: {message: text},
+    }])[0]
     .then((data) => {
         if (data.warnings && data.warnings.length) {
             const warning = data.warnings[0];
@@ -369,6 +362,9 @@ const send = (text) => {
                     t('error_ratelimit', 'You have sent too many messages. Please wait a moment.'));
                 return null;
             }
+            renderMessage('assistant',
+                warning.message || t('error_generic', 'Sorry, something went wrong. Please try again later.'));
+            return null;
         }
         renderMessage('assistant',
             data.reply || t('error_generic', 'Sorry, something went wrong. Please try again later.'));

@@ -35,7 +35,6 @@ $string['error_function_execution'] = 'Error executing function.';
 $string['error_function_not_available'] = 'Function not available.';
 $string['error_generic'] = 'Sorry, something went wrong. Please try again later.';
 $string['error_license_not_active'] = 'The Campus Assistant license is not active.';
-$string['error_method_not_allowed'] = 'Method not allowed.';
 $string['error_no_course_access'] = 'You do not have access to this course.';
 $string['error_no_students'] = 'There are no students in this course.';
 $string['error_no_teaching_courses'] = 'You do not teach any course.';

@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.4] - 2026-08-18
+
+### Changed
+
+- Chat message submission now uses the registered external service
+  `local_campusai_chat_send_message` via `core/ajax` instead of the plugin's own AJAX endpoint.
+- Regenerated `amd/build/campusai.min.js` with the official Moodle grunt build (minified output
+  plus source map).
+
+### Removed
+
+- Custom `ajax.php` endpoint; the external service covers message submission.
+- Unused `error_method_not_allowed` language string.
+
+### Fixed
+
+- Eliminated N+1 queries in `teacher_at_risk_students`: average grades and overdue assignments
+  for all courses and students are now resolved with two grouped queries.
+
 ## [2.2.3] - 2026-08-18
 
 ### Added

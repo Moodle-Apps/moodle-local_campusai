@@ -31,8 +31,6 @@ header('Content-Type: application/json; charset=utf-8');
 
 $response = [
     'enabled'     => false,
-    'ajaxUrl'     => '',
-    'sesskey'     => '',
     'color'       => '#0066CC',
     'position'    => 'bottom-right',
     'title'       => get_string('widget_title_fallback', 'local_campusai'),
@@ -78,11 +76,7 @@ foreach ($files as $file) {
     }
 }
 
-$ajaxurl = new moodle_url('/local/campusai/ajax.php');
-
 $response['enabled']     = (bool) get_config('local_campusai', 'enabled');
-$response['ajaxUrl']     = $ajaxurl->out(false);
-$response['sesskey']     = sesskey();
 $response['color']       = get_config('local_campusai', 'color');
 $response['position']    = get_config('local_campusai', 'position');
 $response['title']       = get_config('local_campusai', 'title');

@@ -24,8 +24,8 @@
 
 defined('MOODLE_INTERNAL') || die();
 
-$plugin->version   = 2026090123;   // YYYYMMDDXX, release timestamp.
+$plugin->version   = 2026090124;   // YYYYMMDDXX, release timestamp.
 $plugin->requires  = 2024041500;   // Moodle 4.4.
 $plugin->component = 'local_campusai';
 $plugin->maturity  = MATURITY_STABLE;
-$plugin->release   = '2.2.3';
+$plugin->release   = '2.2.4';
